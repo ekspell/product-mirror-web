@@ -7,6 +7,7 @@ export default async function Home() {
       id,
       name,
       path,
+      flow_name,
       products (name),
       captures (screenshot_url, captured_at)
     `)
@@ -104,7 +105,12 @@ export default async function Home() {
                     <p className="text-sm text-gray-500">{route.products?.name}</p>
                   </div>
                   
-                 </div>
+                  {route.flow_name && (
+                    <span className="bg-gray-900 text-white text-xs px-3 py-1 rounded-full">
+                      {route.flow_name}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           );
