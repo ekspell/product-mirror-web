@@ -8,7 +8,6 @@ export default async function Home() {
       id,
       name,
       path,
-      flow_name,
       products (name),
       captures (screenshot_url, captured_at)
     `)
