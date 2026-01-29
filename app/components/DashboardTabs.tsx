@@ -161,6 +161,8 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
   const [activeTab, setActiveTab] = useState('changes');
   const [visibleFlow, setVisibleFlow] = useState<string | null>(null);
   const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [expandKey, setExpandKey] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const isScrollingTo = useRef(false);
@@ -361,15 +363,18 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
           <div className="w-64 border-r border-gray-200 py-2 overflow-y-auto flex-shrink-0">
             <button
               onClick={() => {
-                if (expandedFlows.length === flowNames.length) {
+                if (allExpanded) {
                   setExpandedFlows([]);
+                  setAllExpanded(false);
                 } else {
                   setExpandedFlows([...flowNames]);
+                  setAllExpanded(true);
                 }
+                setExpandKey(k => k + 1);
               }}
               className="px-3 py-1.5 mb-1 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
             >
-              {expandedFlows.length === flowNames.length ? 'Collapse all' : 'Expand all'}
+              {allExpanded ? 'Collapse all' : 'Expand all'}
             </button>
             {flowNames.map(flowName => {
               const screens = flowGroups[flowName];
@@ -410,13 +415,14 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
                     <div className="relative">
                       {treeNodes.map((node, i) => (
                         <SidebarTreeNode
-                          key={node.id}
+                          key={`${node.id}-${expandKey}`}
                           node={node}
                           depth={1}
                           isLast={i === treeNodes.length - 1}
                           visibleFlow={visibleFlow}
                           onScrollTo={scrollToFlow}
                           flowName={flowName}
+                          defaultExpanded={allExpanded}
                         />
                       ))}
                     </div>
@@ -455,48 +461,30 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
       )}
 
      {activeTab === 'components' && (
-        <div className="p-8 grid grid-cols-2 gap-6">
-          <div className="bg-gray-50 rounded-lg p-8 h-64 flex items-center justify-center">
-            <div className="text-center">
-              <div className="flex justify-center gap-2 mb-4">
-                <div className="w-10 h-10 bg-gray-300 rounded-full"></div>
-                <div className="w-10 h-10 bg-gray-300 rounded-full"></div>
-                <div className="w-10 h-10 bg-gray-300 rounded-full"></div>
+        <div className="p-8">
+          <p className="text-sm text-gray-500 mb-6">UI components identified across captured screens</p>
+          <div className="grid grid-cols-2 gap-6">
+            {getComponentExamples(routes).map(example => (
+              <div key={example.label} className="bg-gray-50 rounded-lg overflow-hidden">
+                <div className="relative aspect-video bg-gray-200 overflow-hidden">
+                  {example.screenshotUrl ? (
+                    <img
+                      src={example.screenshotUrl}
+                      alt={example.label}
+                      className="w-full h-full object-cover object-top"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                      No capture
+                    </div>
+                  )}
+                </div>
+                <div className="p-4">
+                  <p className="font-medium text-gray-900 text-sm">{example.label}</p>
+                  <p className="text-xs text-gray-500 mt-1">Found in: {example.screenName}</p>
+                </div>
               </div>
-              <p className="text-sm text-emerald-600 font-medium">Avatar profile</p>
-            </div>
-          </div>
-          
-          <div className="bg-gray-50 rounded-lg p-8 h-64 flex items-center justify-center">
-            <div className="text-center">
-              <div className="grid grid-cols-4 gap-2 mb-4">
-                {[...Array(8)].map((_, i) => (
-                  <div key={i} className="w-6 h-6 bg-emerald-500 rounded"></div>
-                ))}
-              </div>
-              <p className="text-sm text-emerald-600 font-medium">Checkbox base</p>
-            </div>
-          </div>
-          
-          <div className="bg-gray-50 rounded-lg p-8 h-64 flex items-center justify-center">
-            <div className="text-center">
-              <div className="flex justify-center gap-4 mb-4">
-                <div className="w-8 h-8 border-2 border-gray-300 rounded-full"></div>
-                <div className="w-8 h-8 border-2 border-gray-300 rounded-full"></div>
-                <div className="w-8 h-8 border-2 border-gray-300 rounded-full"></div>
-              </div>
-              <p className="text-sm text-emerald-600 font-medium">Control handle</p>
-            </div>
-          </div>
-          
-          <div className="bg-gray-50 rounded-lg p-8 h-64 flex items-center justify-center">
-            <div className="text-center">
-              <div className="flex justify-center gap-2 mb-4">
-                <div className="px-3 py-1 bg-gray-900 text-white text-xs rounded">App Store</div>
-                <div className="px-3 py-1 bg-gray-900 text-white text-xs rounded">Google Play</div>
-              </div>
-              <p className="text-sm text-emerald-600 font-medium">Mobile app store badge</p>
-            </div>
+            ))}
           </div>
         </div>
       )}
@@ -504,15 +492,65 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
   );
 }
 
-function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowName }: {
+function getComponentExamples(routes: Route[] | null): { label: string; screenName: string; screenshotUrl: string | null }[] {
+  if (!routes || routes.length === 0) return [];
+
+  // Map component types to route name patterns that likely contain them
+  const componentPatterns: { label: string; keywords: RegExp }[] = [
+    { label: 'Primary button', keywords: /event|setup|create|new|schedule/i },
+    { label: 'Navigation tabs', keywords: /home|dashboard|overview/i },
+    { label: 'Form inputs', keywords: /settings|profile|personal|account/i },
+    { label: 'Toggle controls', keywords: /availability|notification|preference/i },
+  ];
+
+  const examples: { label: string; screenName: string; screenshotUrl: string | null }[] = [];
+  const usedRouteIds = new Set<string>();
+
+  for (const pattern of componentPatterns) {
+    // Find a route matching this pattern that hasn't been used yet
+    const match = routes.find(r =>
+      !usedRouteIds.has(r.id) &&
+      (pattern.keywords.test(r.name) || pattern.keywords.test(r.path)) &&
+      r.captures?.[0]?.screenshot_url
+    );
+
+    if (match) {
+      usedRouteIds.add(match.id);
+      examples.push({
+        label: pattern.label,
+        screenName: match.name,
+        screenshotUrl: match.captures?.[0]?.screenshot_url || null,
+      });
+    }
+  }
+
+  // If we didn't find enough matches, fill with any routes that have screenshots
+  if (examples.length < 4) {
+    for (const route of routes) {
+      if (examples.length >= 4) break;
+      if (usedRouteIds.has(route.id) || !route.captures?.[0]?.screenshot_url) continue;
+      usedRouteIds.add(route.id);
+      examples.push({
+        label: `UI pattern`,
+        screenName: route.name,
+        screenshotUrl: route.captures[0].screenshot_url,
+      });
+    }
+  }
+
+  return examples;
+}
+
+function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowName, defaultExpanded }: {
   node: RouteNode;
   depth: number;
   isLast: boolean;
   visibleFlow: string | null;
   onScrollTo: (flowName: string) => void;
   flowName: string;
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   const hasChildren = node.children.length > 0;
   const indent = depth * 16;
   const displayName = cleanScreenName(node.name, flowName);
@@ -560,6 +598,7 @@ function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowNam
               visibleFlow={visibleFlow}
               onScrollTo={onScrollTo}
               flowName={flowName}
+              defaultExpanded={defaultExpanded}
             />
           ))}
         </div>
