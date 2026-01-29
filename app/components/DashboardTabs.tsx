@@ -22,8 +22,17 @@ type RouteNode = Route & {
 };
 
 function buildFlowTrees(routes: Route[], connections: Connection[]): Record<string, RouteNode[]> {
+  // Only include routes that participate in connections (from the latest crawl)
+  const connectedRouteIds = new Set<string>();
+  for (const conn of connections) {
+    connectedRouteIds.add(conn.source_route_id);
+    connectedRouteIds.add(conn.destination_route_id);
+  }
+
+  const connectedRoutes = routes.filter(r => connectedRouteIds.has(r.id));
+
   const routeMap = new Map<string, RouteNode>();
-  for (const route of routes) {
+  for (const route of connectedRoutes) {
     routeMap.set(route.id, { ...route, children: [] });
   }
 
@@ -33,14 +42,17 @@ function buildFlowTrees(routes: Route[], connections: Connection[]): Record<stri
     const parent = routeMap.get(conn.source_route_id);
     const child = routeMap.get(conn.destination_route_id);
     if (parent && child) {
-      parent.children.push(child);
+      // Avoid adding duplicate children
+      if (!parent.children.some(c => c.id === child.id)) {
+        parent.children.push(child);
+      }
       hasParent.add(conn.destination_route_id);
     }
   }
 
   // Root nodes = routes with no incoming connections, grouped by flow_name
   const trees: Record<string, RouteNode[]> = {};
-  for (const route of routes) {
+  for (const route of connectedRoutes) {
     if (!hasParent.has(route.id)) {
       const flowName = route.flow_name || 'Ungrouped';
       if (!trees[flowName]) trees[flowName] = [];
