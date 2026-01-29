@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import DashboardTabs from './components/DashboardTabs';
+import RunSweepButton from './components/RunSweepButton';
 
 export default async function Home() {
   const { data: routes } = await supabase
@@ -10,7 +11,7 @@ export default async function Home() {
       path,
       flow_name,
       products (name),
-      captures (screenshot_url, captured_at)
+      captures (screenshot_url, captured_at, has_changes, change_summary)
     `)
     .order('captured_at', { referencedTable: 'captures', ascending: false });
 
@@ -35,12 +36,7 @@ export default async function Home() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <button className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800">
-            Run sweep
-          </button>
-          <span className="text-sm text-gray-500">Next sweep: 2 PM</span>
-        </div>
+        <RunSweepButton />
       </div>
 
       <DashboardTabs routes={routes} />

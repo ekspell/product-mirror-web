@@ -9,7 +9,7 @@ type Route = {
   path: string;
   flow_name?: string | null;
   products: { name: string } | null;
-  captures: { screenshot_url: string; captured_at: string }[] | null;
+  captures: { screenshot_url: string; captured_at: string; has_changes?: boolean; change_summary?: string }[] | null;
 };
 
 export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
@@ -78,10 +78,10 @@ export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
 
       {activeTab === 'changes' && (
         <div className="p-8 grid grid-cols-2 gap-6">
-          {routes?.map((route, index) => {
+          {routes?.map((route) => {
             const latestCapture = route.captures?.[0];
-            const hasChanges = index % 2 === 0;
-            const changeCount = (index % 5) + 2;
+            const hasChanges = latestCapture?.has_changes || false;
+            const changeSummary = latestCapture?.change_summary;
             
             return (
               <div key={route.id} className="bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer">
@@ -98,11 +98,19 @@ export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
                     </div>
                   )}
                   
-                  {hasChanges && (
-                    <div className="absolute top-3 left-3 bg-black/40 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
-                      {changeCount} changes • 1hr ago
-                    </div>
-                  )}
+                  <div className="absolute bottom-3 left-3 flex gap-2">
+                    {hasChanges && (
+                      <div className="bg-black/40 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                        {changeSummary || 'Changes detected'} • 1hr ago
+                      </div>
+                    )}
+                    {route.flow_name && (
+                      <div className="bg-black/40 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                        {route.flow_name}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="p-4">
@@ -153,9 +161,10 @@ export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
                 <p className="text-sm text-gray-500 mb-4">{flowRoutes.length} screens</p>
                 
                 <div className="flex gap-4 overflow-x-auto pb-4">
-                  {flowRoutes.map((route, index) => {
+                  {flowRoutes.map((route) => {
                     const latestCapture = route.captures?.[0];
-                    const hasChanges = index === 0;
+                    const hasChanges = latestCapture?.has_changes || false;
+                    const changeSummary = latestCapture?.change_summary;
                     
                     return (
                       <div key={route.id} className="flex-shrink-0 w-72 bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer">
@@ -172,11 +181,14 @@ export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
                             </div>
                           )}
                           
-                          {hasChanges && (
-                            <div className="absolute top-3 left-3 bg-black/40 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
-                              5 changes • 1hr ago
-                            </div>
-                          )}
+                          <div className="absolute bottom-3 left-3 flex gap-2">
+                            {hasChanges && (
+                              <div className="bg-black/40 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
+                                <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                                {changeSummary || 'Changes detected'} • 1hr ago
+                              </div>
+                            )}
+                          </div>
                         </div>
                         
                         <div className="p-3">
@@ -192,7 +204,7 @@ export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
         </div>
       )}
 
-     {activeTab === 'components' && (
+      {activeTab === 'components' && (
         <div className="p-8 grid grid-cols-2 gap-6">
           <div className="bg-gray-50 rounded-lg p-8 h-64 flex items-center justify-center">
             <div className="text-center">
