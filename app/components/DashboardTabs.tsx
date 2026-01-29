@@ -1,8 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, ArrowRight } from 'lucide-react';
-
 type Route = {
   id: string;
   name: string;
@@ -17,97 +15,9 @@ type Connection = {
   destination_route_id: string;
 };
 
-type RouteNode = Route & {
-  children: RouteNode[];
-};
-
-function buildFlowTrees(routes: Route[], connections: Connection[]): Record<string, RouteNode[]> {
-  // Only use routes referenced by connections
-  const connectedIds = new Set<string>();
-  for (const conn of connections) {
-    connectedIds.add(conn.source_route_id);
-    connectedIds.add(conn.destination_route_id);
-  }
-  const relevantRoutes = routes.filter(r => connectedIds.has(r.id));
-
-  // Group routes by flow_name
-  const flowGrouped = new Map<string, Route[]>();
-  for (const route of relevantRoutes) {
-    const flowName = route.flow_name || 'Ungrouped';
-    if (!flowGrouped.has(flowName)) flowGrouped.set(flowName, []);
-    flowGrouped.get(flowName)!.push(route);
-  }
-
-  // Build adjacency list scoped to same-flow connections only
-  const routeFlowMap = new Map<string, string>();
-  for (const route of relevantRoutes) {
-    routeFlowMap.set(route.id, route.flow_name || 'Ungrouped');
-  }
-
-  const childrenOf = new Map<string, string[]>();
-  const hasParentInFlow = new Set<string>();
-  for (const conn of connections) {
-    const srcFlow = routeFlowMap.get(conn.source_route_id);
-    const dstFlow = routeFlowMap.get(conn.destination_route_id);
-    // Only connect within same flow
-    if (!srcFlow || !dstFlow || srcFlow !== dstFlow) continue;
-    if (conn.source_route_id === conn.destination_route_id) continue;
-
-    if (!childrenOf.has(conn.source_route_id)) childrenOf.set(conn.source_route_id, []);
-    const existing = childrenOf.get(conn.source_route_id)!;
-    if (!existing.includes(conn.destination_route_id)) {
-      existing.push(conn.destination_route_id);
-    }
-    hasParentInFlow.add(conn.destination_route_id);
-  }
-
-  const routeById = new Map<string, Route>();
-  for (const route of relevantRoutes) {
-    routeById.set(route.id, route);
-  }
-
-  function buildNode(id: string, visited: Set<string>, depth: number): RouteNode | null {
-    const route = routeById.get(id);
-    if (!route || visited.has(id) || depth > 3) return null;
-    visited.add(id);
-    const children: RouteNode[] = [];
-    for (const childId of (childrenOf.get(id) || [])) {
-      const node = buildNode(childId, visited, depth + 1);
-      if (node) children.push(node);
-    }
-    return { ...route, children };
-  }
-
-  // Build trees: roots are routes with no parent within their flow
-  const trees: Record<string, RouteNode[]> = {};
-  for (const [flowName, flowRoutes] of flowGrouped) {
-    const roots = flowRoutes.filter(r => !hasParentInFlow.has(r.id));
-    // If everything has a parent (cycle), pick the first route as root
-    const effectiveRoots = roots.length > 0 ? roots : [flowRoutes[0]];
-
-    trees[flowName] = [];
-    for (const root of effectiveRoots) {
-      const node = buildNode(root.id, new Set(), 0);
-      if (node) trees[flowName].push(node);
-    }
-  }
-
-  return trees;
-}
-
 export default function DashboardTabs({ routes, connections }: { routes: Route[] | null; connections: Connection[] | null }) {
   const [activeTab, setActiveTab] = useState('changes');
-  const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
-  const [allExpanded, setAllExpanded] = useState(false);
-  const [expandKey, setExpandKey] = useState(0);
   const [selectedFlow, setSelectedFlow] = useState<string | null>(null);
-
-  // Fall back to flat grouping if no connections exist yet
-  const hasConnections = Array.isArray(connections) && connections.length > 0;
-
-  const flowTrees = hasConnections && routes
-    ? buildFlowTrees(routes, connections)
-    : null;
 
 
   const flowGroups = routes?.reduce((acc, route) => {
@@ -119,13 +29,6 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
     return acc;
   }, {} as Record<string, Route[]>) || {};
 
-  const toggleFlow = (flowName: string) => {
-    setExpandedFlows(prev => 
-      prev.includes(flowName) 
-        ? prev.filter(f => f !== flowName)
-        : [...prev, flowName]
-    );
-  };
 
   return (
     <>
@@ -211,114 +114,35 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
 
       {activeTab === 'flows' && (
         <div className="flex">
-          <div className="w-64 border-r border-gray-200 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <button
-                onClick={() => {
-                  const keys = Object.keys(flowTrees || flowGroups);
-                  if (allExpanded) {
-                    setExpandedFlows([]);
-                  } else {
-                    setExpandedFlows(keys);
-                  }
-                  setAllExpanded(!allExpanded);
-                  setExpandKey(k => k + 1);
-                }}
-                className="px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
-              >
-                {allExpanded ? 'Collapse all' : 'Expand all'}
-              </button>
-              {selectedFlow && (
-                <button
-                  onClick={() => setSelectedFlow(null)}
-                  className="px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
-                >
-                  Show all
-                </button>
-              )}
-            </div>
-            {Object.keys(flowTrees || flowGroups).map((flowName, flowIndex, flowKeys) => {
-              const count = flowTrees
-                ? flowTrees[flowName]?.length
-                : flowGroups[flowName]?.length;
-              const isExpanded = expandedFlows.includes(flowName);
-              const isLastFlow = flowIndex === flowKeys.length - 1;
+          <div className="w-64 border-r border-gray-200 py-2">
+            {Object.keys(flowGroups).map(flowName => {
+              const screens = flowGroups[flowName];
+              const isSelected = selectedFlow === flowName;
               return (
-                <div key={flowName} className="relative">
-                  {/* Vertical connector line between flow nodes */}
-                  {flowIndex > 0 && (
-                    <div className="absolute border-l-2 border-gray-300"
-                      style={{ left: '8px', top: 0, height: '14px' }} />
-                  )}
-                  {!isLastFlow && (
-                    <div className="absolute border-l-2 border-gray-300"
-                      style={{ left: '8px', top: '14px', height: 'calc(100% - 14px)' }} />
-                  )}
-
-                  <button
-                    onClick={() => {
-                      toggleFlow(flowName);
-                      setSelectedFlow(flowName);
-                    }}
-                    className={`relative flex items-center gap-1.5 w-full text-left py-1.5 text-sm rounded cursor-pointer ${selectedFlow === flowName ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
-                    style={{ paddingLeft: '4px' }}
-                  >
-                    <span className="w-4 h-4 flex items-center justify-center bg-gray-900 text-white rounded-full text-xs flex-shrink-0">
-                      {isExpanded ? '−' : '+'}
-                    </span>
-                    <span className="font-medium text-gray-900 truncate">{flowName}</span>
-                    <span className="ml-auto text-xs text-gray-500">{count}</span>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="relative">
-                      {flowTrees
-                        ? flowTrees[flowName]?.map((node, i, arr) => (
-                            <SidebarTreeNode key={`${node.id}-${expandKey}`} node={node} depth={1} isLast={i === arr.length - 1} defaultExpanded={allExpanded} onSelectFlow={() => setSelectedFlow(flowName)} />
-                          ))
-                        : flowGroups[flowName]?.map((route, i, arr) => (
-                            <div key={route.id} className="relative" onClick={() => setSelectedFlow(flowName)}>
-                              <div className="absolute border-l-2 border-gray-300"
-                                style={{ left: '8px', top: 0, height: i === arr.length - 1 ? '14px' : '100%' }} />
-                              <div className="absolute border-t-2 border-gray-300"
-                                style={{ left: '8px', top: '14px', width: '12px' }} />
-                              <div className="py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded cursor-pointer"
-                                style={{ paddingLeft: '24px' }}>
-                                {route.name}
-                              </div>
-                            </div>
-                          ))
-                      }
-                    </div>
-                  )}
-                </div>
+                <button
+                  key={flowName}
+                  onClick={() => setSelectedFlow(isSelected ? null : flowName)}
+                  className={`flex items-center justify-between w-full text-left px-4 py-2.5 text-sm transition-colors ${isSelected ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <span className="truncate">{flowName}</span>
+                  <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{screens.length}</span>
+                </button>
               );
             })}
           </div>
 
-          <div className="flex-1 p-8">
-            {Object.entries(flowTrees || flowGroups)
+          <div className="flex-1 p-8 overflow-y-auto">
+            {Object.entries(flowGroups)
               .filter(([flowName]) => !selectedFlow || selectedFlow === flowName)
-              .map(([flowName, flowRoutes]) => (
+              .map(([flowName, screens]) => (
               <div key={flowName} className="mb-8">
-                <h3 className="text-lg font-medium text-gray-900 mb-2">{flowName}</h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  {(flowRoutes as RouteNode[] | Route[]).length} {flowTrees ? 'entry points' : 'screens'}
-                </p>
-
-                {flowTrees ? (
-                  <div className="space-y-4">
-                    {(flowRoutes as RouteNode[]).map(node => (
-                      <FlowTreeRow key={node.id} node={node} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex gap-4 overflow-x-auto pb-4">
-                    {(flowRoutes as Route[]).map((route, index) => (
-                      <ScreenCard key={route.id} route={route} hasChanges={index === 0} />
-                    ))}
-                  </div>
-                )}
+                <h3 className="text-lg font-medium text-gray-900 mb-1">{flowName}</h3>
+                <p className="text-sm text-gray-500 mb-4">{screens.length} screens</p>
+                <div className="flex gap-4 overflow-x-auto pb-4">
+                  {screens.map(route => (
+                    <ScreenCard key={route.id} route={route} hasChanges={false} />
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -372,95 +196,6 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
         </div>
       )}
     </>
-  );
-}
-
-function SidebarTreeNode({ node, depth, isLast = false, defaultExpanded, onSelectFlow }: { node: RouteNode; depth: number; isLast?: boolean; defaultExpanded?: boolean; onSelectFlow?: () => void }) {
-  const [expanded, setExpanded] = useState(defaultExpanded ?? depth === 0);
-  const hasChildren = node.children.length > 0;
-  const indent = depth * 20;
-
-  return (
-    <div className="relative">
-      {/* Vertical connector line from parent */}
-      {depth > 0 && (
-        <div
-          className="absolute border-l-2 border-gray-300"
-          style={{ left: `${indent - 12}px`, top: 0, height: isLast ? '14px' : '100%' }}
-        />
-      )}
-      {/* Horizontal connector branch */}
-      {depth > 0 && (
-        <div
-          className="absolute border-t-2 border-gray-300"
-          style={{ left: `${indent - 12}px`, top: '14px', width: '12px' }}
-        />
-      )}
-      <button
-        onClick={() => {
-          if (hasChildren) setExpanded(!expanded);
-          onSelectFlow?.();
-        }}
-        className="relative flex items-center gap-1.5 w-full text-left py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded cursor-pointer"
-        style={{ paddingLeft: `${indent + 4}px` }}
-      >
-        {hasChildren ? (
-          <span className="w-4 h-4 flex items-center justify-center bg-gray-900 text-white rounded-full text-xs flex-shrink-0">
-            {expanded ? '−' : '+'}
-          </span>
-        ) : (
-          <span className="w-4 flex-shrink-0" />
-        )}
-        <span className="truncate">{node.name}</span>
-      </button>
-      {expanded && hasChildren && (
-        <div className="relative">
-          {node.children.map((child, i) => (
-            <SidebarTreeNode
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              isLast={i === node.children.length - 1}
-              defaultExpanded={defaultExpanded}
-              onSelectFlow={onSelectFlow}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FlowTreeRow({ node }: { node: RouteNode }) {
-  // Flatten the tree into a horizontal chain: root → child → grandchild...
-  const chain: Route[] = [];
-  let current: RouteNode | undefined = node;
-  const visited = new Set<string>();
-  while (current && !visited.has(current.id)) {
-    visited.add(current.id);
-    chain.push(current);
-    current = current.children[0]; // follow first child for main flow
-  }
-
-  return (
-    <div className="mb-6">
-      <div className="flex items-center gap-3 overflow-x-auto pb-4">
-        {chain.map((route, i) => (
-          <div key={route.id} className="flex items-center gap-3 flex-shrink-0">
-            {i > 0 && <ArrowRight size={16} className="text-gray-400 flex-shrink-0" />}
-            <ScreenCard route={route} hasChanges={false} />
-          </div>
-        ))}
-      </div>
-      {/* Show branching children below if a node has multiple children */}
-      {node.children.length > 1 && (
-        <div className="ml-8 mt-2 pl-4 border-l-2 border-gray-200 space-y-2">
-          {node.children.slice(1).map(child => (
-            <FlowTreeRow key={child.id} node={child} />
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 
