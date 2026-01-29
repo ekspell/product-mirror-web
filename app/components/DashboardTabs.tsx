@@ -98,6 +98,8 @@ function buildFlowTrees(routes: Route[], connections: Connection[]): Record<stri
 export default function DashboardTabs({ routes, connections }: { routes: Route[] | null; connections: Connection[] | null }) {
   const [activeTab, setActiveTab] = useState('changes');
   const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [expandKey, setExpandKey] = useState(0);
 
   // Fall back to flat grouping if no connections exist yet
   const hasConnections = Array.isArray(connections) && connections.length > 0;
@@ -209,32 +211,67 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
       {activeTab === 'flows' && (
         <div className="flex">
           <div className="w-64 border-r border-gray-200 p-4">
-            {Object.keys(flowTrees || flowGroups).map(flowName => {
+            <button
+              onClick={() => {
+                const keys = Object.keys(flowTrees || flowGroups);
+                if (allExpanded) {
+                  setExpandedFlows([]);
+                } else {
+                  setExpandedFlows(keys);
+                }
+                setAllExpanded(!allExpanded);
+                setExpandKey(k => k + 1);
+              }}
+              className="mb-3 px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+            >
+              {allExpanded ? 'Collapse all' : 'Expand all'}
+            </button>
+            {Object.keys(flowTrees || flowGroups).map((flowName, flowIndex, flowKeys) => {
               const count = flowTrees
                 ? flowTrees[flowName]?.length
                 : flowGroups[flowName]?.length;
+              const isExpanded = expandedFlows.includes(flowName);
+              const isLastFlow = flowIndex === flowKeys.length - 1;
               return (
-                <div key={flowName} className="mb-2">
+                <div key={flowName} className="relative">
+                  {/* Vertical connector line between flow nodes */}
+                  {flowIndex > 0 && (
+                    <div className="absolute border-l-2 border-gray-300"
+                      style={{ left: '8px', top: 0, height: '14px' }} />
+                  )}
+                  {!isLastFlow && (
+                    <div className="absolute border-l-2 border-gray-300"
+                      style={{ left: '8px', top: '14px', height: 'calc(100% - 14px)' }} />
+                  )}
+
                   <button
                     onClick={() => toggleFlow(flowName)}
-                    className="flex items-center gap-2 w-full text-left px-2 py-2 rounded-lg hover:bg-gray-100"
+                    className="relative flex items-center gap-1.5 w-full text-left py-1.5 text-sm hover:bg-gray-100 rounded cursor-pointer"
+                    style={{ paddingLeft: '4px' }}
                   >
-                    {expandedFlows.includes(flowName) ? (
-                      <ChevronDown size={16} className="text-gray-500" />
-                    ) : (
-                      <ChevronRight size={16} className="text-gray-500" />
-                    )}
-                    <span className="font-medium text-gray-900">{flowName}</span>
+                    <span className="w-4 h-4 flex items-center justify-center bg-gray-900 text-white rounded-full text-xs flex-shrink-0">
+                      {isExpanded ? '−' : '+'}
+                    </span>
+                    <span className="font-medium text-gray-900 truncate">{flowName}</span>
                     <span className="ml-auto text-xs text-gray-500">{count}</span>
                   </button>
 
-                  {expandedFlows.includes(flowName) && (
-                    <div className="ml-4 mt-1">
+                  {isExpanded && (
+                    <div className="relative">
                       {flowTrees
-                        ? flowTrees[flowName]?.map(node => <SidebarTreeNode key={node.id} node={node} depth={0} />)
-                        : flowGroups[flowName]?.map(route => (
-                            <div key={route.id} className="px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 rounded cursor-pointer">
-                              {route.name}
+                        ? flowTrees[flowName]?.map((node, i, arr) => (
+                            <SidebarTreeNode key={`${node.id}-${expandKey}`} node={node} depth={1} isLast={i === arr.length - 1} defaultExpanded={allExpanded} />
+                          ))
+                        : flowGroups[flowName]?.map((route, i, arr) => (
+                            <div key={route.id} className="relative">
+                              <div className="absolute border-l-2 border-gray-300"
+                                style={{ left: '8px', top: 0, height: i === arr.length - 1 ? '14px' : '100%' }} />
+                              <div className="absolute border-t-2 border-gray-300"
+                                style={{ left: '8px', top: '14px', width: '12px' }} />
+                              <div className="py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded cursor-pointer"
+                                style={{ paddingLeft: '24px' }}>
+                                {route.name}
+                              </div>
                             </div>
                           ))
                       }
@@ -322,8 +359,8 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
   );
 }
 
-function SidebarTreeNode({ node, depth, isLast = false }: { node: RouteNode; depth: number; isLast?: boolean }) {
-  const [expanded, setExpanded] = useState(depth === 0);
+function SidebarTreeNode({ node, depth, isLast = false, defaultExpanded }: { node: RouteNode; depth: number; isLast?: boolean; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded ?? depth === 0);
   const hasChildren = node.children.length > 0;
   const indent = depth * 20;
 
@@ -365,6 +402,7 @@ function SidebarTreeNode({ node, depth, isLast = false }: { node: RouteNode; dep
               node={child}
               depth={depth + 1}
               isLast={i === node.children.length - 1}
+              defaultExpanded={defaultExpanded}
             />
           ))}
         </div>
