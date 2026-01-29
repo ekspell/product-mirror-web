@@ -16,50 +16,159 @@ type Connection = {
   destination_route_id: string;
 };
 
-function buildFlowBreadcrumbs(routes: Route[], connections: Connection[]): Record<string, string> {
-  // For each flow, find if it has a "parent" flow via connections
-  // A parent flow is one where a route in flow A links to a route in flow B
+type RouteNode = Route & {
+  children: RouteNode[];
+};
+
+function buildFlowTrees(routes: Route[], connections: Connection[]): Record<string, RouteNode[]> {
+  const connectedIds = new Set<string>();
+  for (const conn of connections) {
+    connectedIds.add(conn.source_route_id);
+    connectedIds.add(conn.destination_route_id);
+  }
+  const relevantRoutes = routes.filter(r => connectedIds.has(r.id));
+
+  const flowGrouped = new Map<string, Route[]>();
+  for (const route of relevantRoutes) {
+    const flowName = route.flow_name || 'Ungrouped';
+    if (!flowGrouped.has(flowName)) flowGrouped.set(flowName, []);
+    flowGrouped.get(flowName)!.push(route);
+  }
+
   const routeFlowMap = new Map<string, string>();
-  for (const route of routes) {
+  for (const route of relevantRoutes) {
     routeFlowMap.set(route.id, route.flow_name || 'Ungrouped');
   }
 
-  // Count cross-flow connections: source_flow → dest_flow
-  const crossFlowCounts = new Map<string, Map<string, number>>();
+  const childrenOf = new Map<string, string[]>();
+  const hasParentInFlow = new Set<string>();
   for (const conn of connections) {
     const srcFlow = routeFlowMap.get(conn.source_route_id);
     const dstFlow = routeFlowMap.get(conn.destination_route_id);
-    if (!srcFlow || !dstFlow || srcFlow === dstFlow) continue;
-    if (!crossFlowCounts.has(dstFlow)) crossFlowCounts.set(dstFlow, new Map());
-    const counts = crossFlowCounts.get(dstFlow)!;
-    counts.set(srcFlow, (counts.get(srcFlow) || 0) + 1);
+    if (!srcFlow || !dstFlow || srcFlow !== dstFlow) continue;
+    if (conn.source_route_id === conn.destination_route_id) continue;
+    if (!childrenOf.has(conn.source_route_id)) childrenOf.set(conn.source_route_id, []);
+    const existing = childrenOf.get(conn.source_route_id)!;
+    if (!existing.includes(conn.destination_route_id)) {
+      existing.push(conn.destination_route_id);
+    }
+    hasParentInFlow.add(conn.destination_route_id);
   }
 
-  // For each flow with incoming cross-flow connections, pick the most common source as parent
-  const breadcrumbs: Record<string, string> = {};
-  for (const [flowName, sources] of crossFlowCounts) {
-    let maxCount = 0;
-    let parentFlow = '';
-    for (const [srcFlow, count] of sources) {
-      if (count > maxCount) {
-        maxCount = count;
-        parentFlow = srcFlow;
+  const routeById = new Map<string, Route>();
+  for (const route of relevantRoutes) {
+    routeById.set(route.id, route);
+  }
+
+  function buildNode(id: string, visited: Set<string>, depth: number): RouteNode | null {
+    const route = routeById.get(id);
+    if (!route || visited.has(id) || depth > 3) return null;
+    visited.add(id);
+    const children: RouteNode[] = [];
+    for (const childId of (childrenOf.get(id) || [])) {
+      const node = buildNode(childId, visited, depth + 1);
+      if (node) children.push(node);
+    }
+    return { ...route, children };
+  }
+
+  const trees: Record<string, RouteNode[]> = {};
+  for (const [flowName, flowRoutes] of flowGrouped) {
+    const roots = flowRoutes.filter(r => !hasParentInFlow.has(r.id));
+    const effectiveRoots = roots.length > 0 ? roots : [flowRoutes[0]];
+    trees[flowName] = [];
+    for (const root of effectiveRoots) {
+      const node = buildNode(root.id, new Set(), 0);
+      if (node) trees[flowName].push(node);
+    }
+  }
+
+  return trees;
+}
+
+type FlowSection = {
+  key: string;
+  label: string;
+  parentLabel: string | null;
+  routes: Route[];
+};
+
+function cleanScreenName(name: string, flowName: string): string {
+  // Strip flow name suffix from screen name
+  // Handles patterns like "Calendar Settings-Availability", "Calendar Settings - Availability",
+  // "Calendar Settings | Availability", "Availability - Calendar Settings"
+  const flow = flowName.toLowerCase();
+  let cleaned = name;
+
+  // Remove trailing flow name with various separators: " - Flow", "-Flow", " | Flow"
+  const trailPattern = new RegExp(`\\s*[-–—|]\\s*${flow.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i');
+  cleaned = cleaned.replace(trailPattern, '');
+
+  // Remove leading flow name: "Flow - Name", "Flow | Name"
+  const leadPattern = new RegExp(`^\\s*${flow.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[-–—|]\\s*`, 'i');
+  cleaned = cleaned.replace(leadPattern, '');
+
+  return cleaned.trim() || name;
+}
+
+function flattenFlowTrees(flowTrees: Record<string, RouteNode[]>, flowGroups: Record<string, Route[]>): FlowSection[] {
+  const sections: FlowSection[] = [];
+
+  for (const flowName of Object.keys(flowGroups)) {
+    const trees = flowTrees[flowName];
+    if (!trees || trees.length === 0) {
+      // No tree data — show as flat section
+      sections.push({ key: flowName, label: flowName, parentLabel: null, routes: flowGroups[flowName] });
+      continue;
+    }
+
+    // Walk the tree: each node becomes its own section with a cleaned label
+    function walkNode(node: RouteNode, parentName: string | null, flowName: string) {
+      const cleanedLabel = cleanScreenName(node.name, flowName);
+      sections.push({
+        key: node.id,
+        label: cleanedLabel,
+        parentLabel: parentName,
+        routes: [node],
+      });
+
+      for (const child of node.children) {
+        walkNode(child, cleanedLabel, flowName);
       }
     }
-    if (parentFlow) {
-      breadcrumbs[flowName] = parentFlow;
+
+    // Root nodes belong to the flow — group all roots together as the flow section
+    const rootRoutes = trees.map(t => t as Route);
+    sections.push({
+      key: flowName,
+      label: flowName,
+      parentLabel: null,
+      routes: rootRoutes,
+    });
+
+    // Then walk each root's children
+    for (const root of trees) {
+      for (const child of root.children) {
+        walkNode(child, flowName, flowName);
+      }
     }
   }
 
-  return breadcrumbs;
+  return sections;
 }
 
 export default function DashboardTabs({ routes, connections }: { routes: Route[] | null; connections: Connection[] | null }) {
   const [activeTab, setActiveTab] = useState('changes');
   const [visibleFlow, setVisibleFlow] = useState<string | null>(null);
+  const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const isScrollingTo = useRef(false);
+
+  const hasConnections = Array.isArray(connections) && connections.length > 0;
+  const flowTrees = hasConnections && routes
+    ? buildFlowTrees(routes, connections)
+    : null;
 
   const flowGroups = routes?.reduce((acc, route) => {
     const flowName = route.flow_name || 'Ungrouped';
@@ -70,11 +179,43 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
     return acc;
   }, {} as Record<string, Route[]>) || {};
 
-  const flowNames = Object.keys(flowGroups);
+  const flowNames = Object.keys(flowGroups).sort((a, b) => {
+    if (a === 'Other') return 1;
+    if (b === 'Other') return -1;
+    return 0;
+  });
 
-  const flowBreadcrumbs = routes && connections && connections.length > 0
-    ? buildFlowBreadcrumbs(routes, connections)
-    : {};
+  const flowSections: FlowSection[] = flowTrees
+    ? flattenFlowTrees(flowTrees, flowGroups)
+    : Object.entries(flowGroups).map(([flowName, routes]) => ({
+        key: flowName,
+        label: flowName,
+        parentLabel: null,
+        routes,
+      }));
+
+  // Count screens per flow based on what's actually shown in the main content
+  const flowScreenCounts: Record<string, number> = {};
+  for (const section of flowSections) {
+    // Find which top-level flow this section belongs to
+    const flow = flowNames.includes(section.key) ? section.key
+      : flowNames.find(f => section.parentLabel === f || routes?.find(r => r.id === section.key)?.flow_name === f)
+      || section.parentLabel || section.label;
+    flowScreenCounts[flow] = (flowScreenCounts[flow] || 0) + section.routes.length;
+  }
+
+  // Map section keys back to their parent flow name for sidebar highlighting
+  const sectionKeyToFlow = new Map<string, string>();
+  for (const section of flowSections) {
+    // Root sections use flowName as key; child sections use route ID
+    // Find which flow this section belongs to by checking if key matches a flowName
+    if (flowNames.includes(section.key)) {
+      sectionKeyToFlow.set(section.key, section.key);
+    } else {
+      // Child section — derive flow from label hierarchy
+      sectionKeyToFlow.set(section.key, section.parentLabel || section.label);
+    }
+  }
 
   // Scroll-linked highlighting via IntersectionObserver
   useEffect(() => {
@@ -84,7 +225,6 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
     const observer = new IntersectionObserver(
       (entries) => {
         if (isScrollingTo.current) return;
-        // Find the topmost visible section
         let topEntry: IntersectionObserverEntry | null = null;
         for (const entry of entries) {
           if (entry.isIntersecting) {
@@ -94,8 +234,12 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
           }
         }
         if (topEntry) {
-          const flowName = (topEntry.target as HTMLElement).dataset.flow;
-          if (flowName) setVisibleFlow(flowName);
+          const sectionKey = (topEntry.target as HTMLElement).dataset.flow;
+          if (sectionKey) {
+            // Resolve to the root flow name for sidebar highlighting
+            const flowName = sectionKeyToFlow.get(sectionKey) || sectionKey;
+            setVisibleFlow(flowName);
+          }
         }
       },
       {
@@ -105,13 +249,13 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
       }
     );
 
-    for (const flowName of flowNames) {
-      const el = sectionRefs.current[flowName];
+    for (const section of flowSections) {
+      const el = sectionRefs.current[section.key];
       if (el) observer.observe(el);
     }
 
     return () => observer.disconnect();
-  }, [activeTab, flowNames.join(',')]);
+  }, [activeTab, flowSections.map(s => s.key).join(',')]);
 
   const scrollToFlow = useCallback((flowName: string) => {
     const el = sectionRefs.current[flowName];
@@ -215,44 +359,95 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
       {activeTab === 'flows' && (
         <div className="flex" style={{ height: 'calc(100vh - 160px)' }}>
           <div className="w-64 border-r border-gray-200 py-2 overflow-y-auto flex-shrink-0">
+            <button
+              onClick={() => {
+                if (expandedFlows.length === flowNames.length) {
+                  setExpandedFlows([]);
+                } else {
+                  setExpandedFlows([...flowNames]);
+                }
+              }}
+              className="px-3 py-1.5 mb-1 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+            >
+              {expandedFlows.length === flowNames.length ? 'Collapse all' : 'Expand all'}
+            </button>
             {flowNames.map(flowName => {
               const screens = flowGroups[flowName];
               const isActive = visibleFlow === flowName;
+              const isExpanded = expandedFlows.includes(flowName);
+              const treeNodes = flowTrees?.[flowName];
+              const hasChildren = treeNodes && treeNodes.length > 0;
+
               return (
-                <button
-                  key={flowName}
-                  onClick={() => scrollToFlow(flowName)}
-                  className={`flex items-center justify-between w-full text-left px-4 py-2.5 text-sm transition-colors ${isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <span className="truncate">{flowName}</span>
-                  <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{screens.length}</span>
-                </button>
+                <div key={flowName}>
+                  <button
+                    onClick={() => {
+                      scrollToFlow(flowName);
+                      if (hasChildren) {
+                        setExpandedFlows(prev =>
+                          prev.includes(flowName)
+                            ? prev.filter(f => f !== flowName)
+                            : [...prev, flowName]
+                        );
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 w-full text-left px-3 py-2 text-sm transition-colors ${isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
+                  >
+                    {hasChildren ? (
+                      <svg
+                        width="12" height="12" viewBox="0 0 12 12"
+                        className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                      >
+                        <path d="M4 2L8 6L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                      </svg>
+                    ) : (
+                      <span className="w-3 flex-shrink-0" />
+                    )}
+                    <span className="truncate">{flowName}</span>
+                    <span className="text-xs text-gray-400 ml-auto flex-shrink-0">{flowScreenCounts[flowName] || screens.length}</span>
+                  </button>
+                  {isExpanded && hasChildren && (
+                    <div className="relative">
+                      {treeNodes.map((node, i) => (
+                        <SidebarTreeNode
+                          key={node.id}
+                          node={node}
+                          depth={1}
+                          isLast={i === treeNodes.length - 1}
+                          visibleFlow={visibleFlow}
+                          onScrollTo={scrollToFlow}
+                          flowName={flowName}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
 
           <div ref={scrollContainerRef} className="flex-1 p-8 overflow-y-auto">
-            {Object.entries(flowGroups).map(([flowName, screens]) => (
+            {flowSections.map(section => (
               <div
-                key={flowName}
-                ref={el => { sectionRefs.current[flowName] = el; }}
-                data-flow={flowName}
+                key={section.key}
+                ref={el => { sectionRefs.current[section.key] = el; }}
+                data-flow={section.key}
                 className="mb-10"
               >
-                <h3 className="text-lg font-medium text-gray-900">
-                  {flowName}
-                  {flowBreadcrumbs[flowName] && (
+                <div className="flex gap-4 overflow-x-auto pb-4">
+                  {section.routes.map(route => (
+                    <ScreenCard key={route.id} route={route} hasChanges={false} hideLabel />
+                  ))}
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mt-2">
+                  {section.label}
+                  {section.parentLabel && (
                     <span className="font-normal text-gray-400">
-                      {' '}from <span className="font-medium text-gray-500">{flowBreadcrumbs[flowName]}</span>
+                      {' '}from <span className="font-medium text-gray-500">{section.parentLabel}</span>
                     </span>
                   )}
                 </h3>
-                <p className="text-sm text-gray-500 mb-4">{screens.length} screens</p>
-                <div className="flex gap-4 overflow-x-auto pb-4">
-                  {screens.map(route => (
-                    <ScreenCard key={route.id} route={route} hasChanges={false} />
-                  ))}
-                </div>
+                <p className="text-sm text-gray-500">{section.routes.length} screens</p>
               </div>
             ))}
           </div>
@@ -309,7 +504,71 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
   );
 }
 
-function ScreenCard({ route, hasChanges }: { route: Route; hasChanges: boolean }) {
+function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowName }: {
+  node: RouteNode;
+  depth: number;
+  isLast: boolean;
+  visibleFlow: string | null;
+  onScrollTo: (flowName: string) => void;
+  flowName: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasChildren = node.children.length > 0;
+  const indent = depth * 16;
+  const displayName = cleanScreenName(node.name, flowName);
+
+  return (
+    <div className="relative">
+      {/* Vertical connector line */}
+      <div
+        className="absolute border-l border-gray-200"
+        style={{ left: `${indent + 6}px`, top: 0, height: isLast ? '16px' : '100%' }}
+      />
+      {/* Horizontal connector branch */}
+      <div
+        className="absolute border-t border-gray-200"
+        style={{ left: `${indent + 6}px`, top: '16px', width: '8px' }}
+      />
+      <button
+        onClick={() => {
+          if (hasChildren) setExpanded(!expanded);
+          if (node.flow_name) onScrollTo(node.flow_name);
+        }}
+        className="relative flex items-center gap-1 w-full text-left py-1.5 text-sm text-gray-600 hover:bg-gray-50 rounded transition-colors"
+        style={{ paddingLeft: `${indent + 18}px` }}
+      >
+        {hasChildren ? (
+          <svg
+            width="10" height="10" viewBox="0 0 12 12"
+            className={`text-gray-400 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          >
+            <path d="M4 2L8 6L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+          </svg>
+        ) : (
+          <span className="w-2.5 flex-shrink-0" />
+        )}
+        <span className="truncate text-xs">{displayName}</span>
+      </button>
+      {expanded && hasChildren && (
+        <div className="relative">
+          {node.children.map((child, i) => (
+            <SidebarTreeNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              isLast={i === node.children.length - 1}
+              visibleFlow={visibleFlow}
+              onScrollTo={onScrollTo}
+              flowName={flowName}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScreenCard({ route, hasChanges, hideLabel }: { route: Route; hasChanges: boolean; hideLabel?: boolean }) {
   const latestCapture = route.captures?.[0];
   return (
     <div className="flex-shrink-0 w-72 bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer">
@@ -331,9 +590,11 @@ function ScreenCard({ route, hasChanges }: { route: Route; hasChanges: boolean }
           </div>
         )}
       </div>
-      <div className="p-3">
-        <p className="font-medium text-gray-900 text-sm">{route.name}</p>
-      </div>
+      {!hideLabel && (
+        <div className="p-3">
+          <p className="font-medium text-gray-900 text-sm">{route.name}</p>
+        </div>
+      )}
     </div>
   );
 }
