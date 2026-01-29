@@ -100,6 +100,7 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
   const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
   const [allExpanded, setAllExpanded] = useState(false);
   const [expandKey, setExpandKey] = useState(0);
+  const [selectedFlow, setSelectedFlow] = useState<string | null>(null);
 
   // Fall back to flat grouping if no connections exist yet
   const hasConnections = Array.isArray(connections) && connections.length > 0;
@@ -211,21 +212,31 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
       {activeTab === 'flows' && (
         <div className="flex">
           <div className="w-64 border-r border-gray-200 p-4">
-            <button
-              onClick={() => {
-                const keys = Object.keys(flowTrees || flowGroups);
-                if (allExpanded) {
-                  setExpandedFlows([]);
-                } else {
-                  setExpandedFlows(keys);
-                }
-                setAllExpanded(!allExpanded);
-                setExpandKey(k => k + 1);
-              }}
-              className="mb-3 px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
-            >
-              {allExpanded ? 'Collapse all' : 'Expand all'}
-            </button>
+            <div className="flex items-center gap-2 mb-3">
+              <button
+                onClick={() => {
+                  const keys = Object.keys(flowTrees || flowGroups);
+                  if (allExpanded) {
+                    setExpandedFlows([]);
+                  } else {
+                    setExpandedFlows(keys);
+                  }
+                  setAllExpanded(!allExpanded);
+                  setExpandKey(k => k + 1);
+                }}
+                className="px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+              >
+                {allExpanded ? 'Collapse all' : 'Expand all'}
+              </button>
+              {selectedFlow && (
+                <button
+                  onClick={() => setSelectedFlow(null)}
+                  className="px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                >
+                  Show all
+                </button>
+              )}
+            </div>
             {Object.keys(flowTrees || flowGroups).map((flowName, flowIndex, flowKeys) => {
               const count = flowTrees
                 ? flowTrees[flowName]?.length
@@ -245,8 +256,11 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
                   )}
 
                   <button
-                    onClick={() => toggleFlow(flowName)}
-                    className="relative flex items-center gap-1.5 w-full text-left py-1.5 text-sm hover:bg-gray-100 rounded cursor-pointer"
+                    onClick={() => {
+                      toggleFlow(flowName);
+                      setSelectedFlow(flowName);
+                    }}
+                    className={`relative flex items-center gap-1.5 w-full text-left py-1.5 text-sm rounded cursor-pointer ${selectedFlow === flowName ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
                     style={{ paddingLeft: '4px' }}
                   >
                     <span className="w-4 h-4 flex items-center justify-center bg-gray-900 text-white rounded-full text-xs flex-shrink-0">
@@ -260,10 +274,10 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
                     <div className="relative">
                       {flowTrees
                         ? flowTrees[flowName]?.map((node, i, arr) => (
-                            <SidebarTreeNode key={`${node.id}-${expandKey}`} node={node} depth={1} isLast={i === arr.length - 1} defaultExpanded={allExpanded} />
+                            <SidebarTreeNode key={`${node.id}-${expandKey}`} node={node} depth={1} isLast={i === arr.length - 1} defaultExpanded={allExpanded} onSelectFlow={() => setSelectedFlow(flowName)} />
                           ))
                         : flowGroups[flowName]?.map((route, i, arr) => (
-                            <div key={route.id} className="relative">
+                            <div key={route.id} className="relative" onClick={() => setSelectedFlow(flowName)}>
                               <div className="absolute border-l-2 border-gray-300"
                                 style={{ left: '8px', top: 0, height: i === arr.length - 1 ? '14px' : '100%' }} />
                               <div className="absolute border-t-2 border-gray-300"
@@ -283,7 +297,9 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
           </div>
 
           <div className="flex-1 p-8">
-            {Object.entries(flowTrees || flowGroups).map(([flowName, flowRoutes]) => (
+            {Object.entries(flowTrees || flowGroups)
+              .filter(([flowName]) => !selectedFlow || selectedFlow === flowName)
+              .map(([flowName, flowRoutes]) => (
               <div key={flowName} className="mb-8">
                 <h3 className="text-lg font-medium text-gray-900 mb-2">{flowName}</h3>
                 <p className="text-sm text-gray-500 mb-4">
@@ -359,7 +375,7 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
   );
 }
 
-function SidebarTreeNode({ node, depth, isLast = false, defaultExpanded }: { node: RouteNode; depth: number; isLast?: boolean; defaultExpanded?: boolean }) {
+function SidebarTreeNode({ node, depth, isLast = false, defaultExpanded, onSelectFlow }: { node: RouteNode; depth: number; isLast?: boolean; defaultExpanded?: boolean; onSelectFlow?: () => void }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? depth === 0);
   const hasChildren = node.children.length > 0;
   const indent = depth * 20;
@@ -381,7 +397,10 @@ function SidebarTreeNode({ node, depth, isLast = false, defaultExpanded }: { nod
         />
       )}
       <button
-        onClick={() => hasChildren && setExpanded(!expanded)}
+        onClick={() => {
+          if (hasChildren) setExpanded(!expanded);
+          onSelectFlow?.();
+        }}
         className="relative flex items-center gap-1.5 w-full text-left py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded cursor-pointer"
         style={{ paddingLeft: `${indent + 4}px` }}
       >
@@ -403,6 +422,7 @@ function SidebarTreeNode({ node, depth, isLast = false, defaultExpanded }: { nod
               depth={depth + 1}
               isLast={i === node.children.length - 1}
               defaultExpanded={defaultExpanded}
+              onSelectFlow={onSelectFlow}
             />
           ))}
         </div>
