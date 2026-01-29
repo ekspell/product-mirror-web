@@ -22,25 +22,35 @@ type RouteNode = Route & {
 };
 
 function buildFlowTrees(routes: Route[], connections: Connection[]): Record<string, RouteNode[]> {
+  // Only use routes that are referenced by connections
+  const connectedIds = new Set<string>();
+  for (const conn of connections) {
+    connectedIds.add(conn.source_route_id);
+    connectedIds.add(conn.destination_route_id);
+  }
+  const relevantRoutes = routes.filter(r => connectedIds.has(r.id));
+
   const routeMap = new Map<string, RouteNode>();
-  for (const route of routes) {
+  for (const route of relevantRoutes) {
     routeMap.set(route.id, { ...route, children: [] });
   }
 
-  // Track which routes are destinations (have a parent)
+  // Build parent→child from forward-only connections
   const hasParent = new Set<string>();
   for (const conn of connections) {
     const parent = routeMap.get(conn.source_route_id);
     const child = routeMap.get(conn.destination_route_id);
-    if (parent && child) {
-      parent.children.push(child);
+    if (parent && child && parent.id !== child.id) {
+      if (!parent.children.some(c => c.id === child.id)) {
+        parent.children.push(child);
+      }
       hasParent.add(conn.destination_route_id);
     }
   }
 
-  // Root nodes = routes with no incoming connections, grouped by flow_name
+  // Root nodes = routes with no incoming forward connections, grouped by flow_name
   const trees: Record<string, RouteNode[]> = {};
-  for (const route of routes) {
+  for (const route of relevantRoutes) {
     if (!hasParent.has(route.id)) {
       const flowName = route.flow_name || 'Ungrouped';
       if (!trees[flowName]) trees[flowName] = [];
@@ -56,11 +66,12 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
   const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
 
   // Fall back to flat grouping if no connections exist yet
-  const hasConnections = connections && connections.length > 0;
+  const hasConnections = Array.isArray(connections) && connections.length > 0;
 
   const flowTrees = hasConnections && routes
     ? buildFlowTrees(routes, connections)
     : null;
+
 
   const flowGroups = routes?.reduce((acc, route) => {
     const flowName = route.flow_name || 'Ungrouped';
