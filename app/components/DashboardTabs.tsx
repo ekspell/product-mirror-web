@@ -22,7 +22,7 @@ type RouteNode = Route & {
 };
 
 function buildFlowTrees(routes: Route[], connections: Connection[]): Record<string, RouteNode[]> {
-  // Only use routes that are referenced by connections
+  // Only use routes referenced by connections
   const connectedIds = new Set<string>();
   for (const conn of connections) {
     connectedIds.add(conn.source_route_id);
@@ -30,31 +30,65 @@ function buildFlowTrees(routes: Route[], connections: Connection[]): Record<stri
   }
   const relevantRoutes = routes.filter(r => connectedIds.has(r.id));
 
-  const routeMap = new Map<string, RouteNode>();
+  // Group routes by flow_name
+  const flowGrouped = new Map<string, Route[]>();
   for (const route of relevantRoutes) {
-    routeMap.set(route.id, { ...route, children: [] });
+    const flowName = route.flow_name || 'Ungrouped';
+    if (!flowGrouped.has(flowName)) flowGrouped.set(flowName, []);
+    flowGrouped.get(flowName)!.push(route);
   }
 
-  // Build parent→child from forward-only connections
-  const hasParent = new Set<string>();
+  // Build adjacency list scoped to same-flow connections only
+  const routeFlowMap = new Map<string, string>();
+  for (const route of relevantRoutes) {
+    routeFlowMap.set(route.id, route.flow_name || 'Ungrouped');
+  }
+
+  const childrenOf = new Map<string, string[]>();
+  const hasParentInFlow = new Set<string>();
   for (const conn of connections) {
-    const parent = routeMap.get(conn.source_route_id);
-    const child = routeMap.get(conn.destination_route_id);
-    if (parent && child && parent.id !== child.id) {
-      if (!parent.children.some(c => c.id === child.id)) {
-        parent.children.push(child);
-      }
-      hasParent.add(conn.destination_route_id);
+    const srcFlow = routeFlowMap.get(conn.source_route_id);
+    const dstFlow = routeFlowMap.get(conn.destination_route_id);
+    // Only connect within same flow
+    if (!srcFlow || !dstFlow || srcFlow !== dstFlow) continue;
+    if (conn.source_route_id === conn.destination_route_id) continue;
+
+    if (!childrenOf.has(conn.source_route_id)) childrenOf.set(conn.source_route_id, []);
+    const existing = childrenOf.get(conn.source_route_id)!;
+    if (!existing.includes(conn.destination_route_id)) {
+      existing.push(conn.destination_route_id);
     }
+    hasParentInFlow.add(conn.destination_route_id);
   }
 
-  // Root nodes = routes with no incoming forward connections, grouped by flow_name
-  const trees: Record<string, RouteNode[]> = {};
+  const routeById = new Map<string, Route>();
   for (const route of relevantRoutes) {
-    if (!hasParent.has(route.id)) {
-      const flowName = route.flow_name || 'Ungrouped';
-      if (!trees[flowName]) trees[flowName] = [];
-      trees[flowName].push(routeMap.get(route.id)!);
+    routeById.set(route.id, route);
+  }
+
+  function buildNode(id: string, visited: Set<string>, depth: number): RouteNode | null {
+    const route = routeById.get(id);
+    if (!route || visited.has(id) || depth > 3) return null;
+    visited.add(id);
+    const children: RouteNode[] = [];
+    for (const childId of (childrenOf.get(id) || [])) {
+      const node = buildNode(childId, visited, depth + 1);
+      if (node) children.push(node);
+    }
+    return { ...route, children };
+  }
+
+  // Build trees: roots are routes with no parent within their flow
+  const trees: Record<string, RouteNode[]> = {};
+  for (const [flowName, flowRoutes] of flowGrouped) {
+    const roots = flowRoutes.filter(r => !hasParentInFlow.has(r.id));
+    // If everything has a parent (cycle), pick the first route as root
+    const effectiveRoots = roots.length > 0 ? roots : [flowRoutes[0]];
+
+    trees[flowName] = [];
+    for (const root of effectiveRoots) {
+      const node = buildNode(root.id, new Set(), 0);
+      if (node) trees[flowName].push(node);
     }
   }
 
@@ -222,7 +256,7 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
                 {flowTrees ? (
                   <div className="space-y-4">
                     {(flowRoutes as RouteNode[]).map(node => (
-                      <FlowTreeRow key={node.id} node={node} depth={0} />
+                      <FlowTreeRow key={node.id} node={node} />
                     ))}
                   </div>
                 ) : (
@@ -288,42 +322,86 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
   );
 }
 
-function SidebarTreeNode({ node, depth }: { node: RouteNode; depth: number }) {
-  const [expanded, setExpanded] = useState(false);
+function SidebarTreeNode({ node, depth, isLast = false }: { node: RouteNode; depth: number; isLast?: boolean }) {
+  const [expanded, setExpanded] = useState(depth === 0);
   const hasChildren = node.children.length > 0;
+  const indent = depth * 20;
 
   return (
-    <div>
+    <div className="relative">
+      {/* Vertical connector line from parent */}
+      {depth > 0 && (
+        <div
+          className="absolute border-l-2 border-gray-300"
+          style={{ left: `${indent - 12}px`, top: 0, height: isLast ? '14px' : '100%' }}
+        />
+      )}
+      {/* Horizontal connector branch */}
+      {depth > 0 && (
+        <div
+          className="absolute border-t-2 border-gray-300"
+          style={{ left: `${indent - 12}px`, top: '14px', width: '12px' }}
+        />
+      )}
       <button
         onClick={() => hasChildren && setExpanded(!expanded)}
-        className="flex items-center gap-1 w-full text-left px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 rounded cursor-pointer"
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        className="relative flex items-center gap-1.5 w-full text-left py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded cursor-pointer"
+        style={{ paddingLeft: `${indent + 4}px` }}
       >
         {hasChildren ? (
-          expanded ? <ChevronDown size={12} className="text-gray-400 flex-shrink-0" /> : <ChevronRight size={12} className="text-gray-400 flex-shrink-0" />
+          <span className="w-4 h-4 flex items-center justify-center bg-gray-900 text-white rounded-full text-xs flex-shrink-0">
+            {expanded ? '−' : '+'}
+          </span>
         ) : (
-          <span className="w-3 flex-shrink-0" />
+          <span className="w-4 flex-shrink-0" />
         )}
         <span className="truncate">{node.name}</span>
-        {hasChildren && <span className="ml-auto text-xs text-gray-400">{node.children.length}</span>}
       </button>
-      {expanded && node.children.map(child => (
-        <SidebarTreeNode key={child.id} node={child} depth={depth + 1} />
-      ))}
+      {expanded && hasChildren && (
+        <div className="relative">
+          {node.children.map((child, i) => (
+            <SidebarTreeNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              isLast={i === node.children.length - 1}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function FlowTreeRow({ node, depth }: { node: RouteNode; depth: number }) {
+function FlowTreeRow({ node }: { node: RouteNode }) {
+  // Flatten the tree into a horizontal chain: root → child → grandchild...
+  const chain: Route[] = [];
+  let current: RouteNode | undefined = node;
+  const visited = new Set<string>();
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    chain.push(current);
+    current = current.children[0]; // follow first child for main flow
+  }
+
   return (
-    <div>
-      <div className="flex items-center gap-3" style={{ marginLeft: `${depth * 40}px` }}>
-        {depth > 0 && <ArrowRight size={16} className="text-gray-400 flex-shrink-0" />}
-        <ScreenCard route={node} hasChanges={false} />
+    <div className="mb-6">
+      <div className="flex items-center gap-3 overflow-x-auto pb-4">
+        {chain.map((route, i) => (
+          <div key={route.id} className="flex items-center gap-3 flex-shrink-0">
+            {i > 0 && <ArrowRight size={16} className="text-gray-400 flex-shrink-0" />}
+            <ScreenCard route={route} hasChanges={false} />
+          </div>
+        ))}
       </div>
-      {node.children.map(child => (
-        <FlowTreeRow key={child.id} node={child} depth={depth + 1} />
-      ))}
+      {/* Show branching children below if a node has multiple children */}
+      {node.children.length > 1 && (
+        <div className="ml-8 mt-2 pl-4 border-l-2 border-gray-200 space-y-2">
+          {node.children.slice(1).map(child => (
+            <FlowTreeRow key={child.id} node={child} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
