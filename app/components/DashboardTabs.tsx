@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+
 type Route = {
   id: string;
   name: string;
@@ -15,10 +16,50 @@ type Connection = {
   destination_route_id: string;
 };
 
+function buildFlowBreadcrumbs(routes: Route[], connections: Connection[]): Record<string, string> {
+  // For each flow, find if it has a "parent" flow via connections
+  // A parent flow is one where a route in flow A links to a route in flow B
+  const routeFlowMap = new Map<string, string>();
+  for (const route of routes) {
+    routeFlowMap.set(route.id, route.flow_name || 'Ungrouped');
+  }
+
+  // Count cross-flow connections: source_flow → dest_flow
+  const crossFlowCounts = new Map<string, Map<string, number>>();
+  for (const conn of connections) {
+    const srcFlow = routeFlowMap.get(conn.source_route_id);
+    const dstFlow = routeFlowMap.get(conn.destination_route_id);
+    if (!srcFlow || !dstFlow || srcFlow === dstFlow) continue;
+    if (!crossFlowCounts.has(dstFlow)) crossFlowCounts.set(dstFlow, new Map());
+    const counts = crossFlowCounts.get(dstFlow)!;
+    counts.set(srcFlow, (counts.get(srcFlow) || 0) + 1);
+  }
+
+  // For each flow with incoming cross-flow connections, pick the most common source as parent
+  const breadcrumbs: Record<string, string> = {};
+  for (const [flowName, sources] of crossFlowCounts) {
+    let maxCount = 0;
+    let parentFlow = '';
+    for (const [srcFlow, count] of sources) {
+      if (count > maxCount) {
+        maxCount = count;
+        parentFlow = srcFlow;
+      }
+    }
+    if (parentFlow) {
+      breadcrumbs[flowName] = parentFlow;
+    }
+  }
+
+  return breadcrumbs;
+}
+
 export default function DashboardTabs({ routes, connections }: { routes: Route[] | null; connections: Connection[] | null }) {
   const [activeTab, setActiveTab] = useState('changes');
-  const [selectedFlow, setSelectedFlow] = useState<string | null>(null);
-
+  const [visibleFlow, setVisibleFlow] = useState<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const isScrollingTo = useRef(false);
 
   const flowGroups = routes?.reduce((acc, route) => {
     const flowName = route.flow_name || 'Ungrouped';
@@ -28,6 +69,65 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
     acc[flowName].push(route);
     return acc;
   }, {} as Record<string, Route[]>) || {};
+
+  const flowNames = Object.keys(flowGroups);
+
+  const flowBreadcrumbs = routes && connections && connections.length > 0
+    ? buildFlowBreadcrumbs(routes, connections)
+    : {};
+
+  // Scroll-linked highlighting via IntersectionObserver
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || activeTab !== 'flows') return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (isScrollingTo.current) return;
+        // Find the topmost visible section
+        let topEntry: IntersectionObserverEntry | null = null;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            if (!topEntry || entry.boundingClientRect.top < topEntry.boundingClientRect.top) {
+              topEntry = entry;
+            }
+          }
+        }
+        if (topEntry) {
+          const flowName = (topEntry.target as HTMLElement).dataset.flow;
+          if (flowName) setVisibleFlow(flowName);
+        }
+      },
+      {
+        root: container,
+        rootMargin: '-10% 0px -60% 0px',
+        threshold: 0,
+      }
+    );
+
+    for (const flowName of flowNames) {
+      const el = sectionRefs.current[flowName];
+      if (el) observer.observe(el);
+    }
+
+    return () => observer.disconnect();
+  }, [activeTab, flowNames.join(',')]);
+
+  const scrollToFlow = useCallback((flowName: string) => {
+    const el = sectionRefs.current[flowName];
+    const container = scrollContainerRef.current;
+    if (!el || !container) return;
+
+    isScrollingTo.current = true;
+    setVisibleFlow(flowName);
+
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Re-enable scroll observation after animation
+    setTimeout(() => {
+      isScrollingTo.current = false;
+    }, 800);
+  }, []);
 
 
   return (
@@ -113,16 +213,16 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
       )}
 
       {activeTab === 'flows' && (
-        <div className="flex">
-          <div className="w-64 border-r border-gray-200 py-2">
-            {Object.keys(flowGroups).map(flowName => {
+        <div className="flex" style={{ height: 'calc(100vh - 160px)' }}>
+          <div className="w-64 border-r border-gray-200 py-2 overflow-y-auto flex-shrink-0">
+            {flowNames.map(flowName => {
               const screens = flowGroups[flowName];
-              const isSelected = selectedFlow === flowName;
+              const isActive = visibleFlow === flowName;
               return (
                 <button
                   key={flowName}
-                  onClick={() => setSelectedFlow(isSelected ? null : flowName)}
-                  className={`flex items-center justify-between w-full text-left px-4 py-2.5 text-sm transition-colors ${isSelected ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
+                  onClick={() => scrollToFlow(flowName)}
+                  className={`flex items-center justify-between w-full text-left px-4 py-2.5 text-sm transition-colors ${isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
                   <span className="truncate">{flowName}</span>
                   <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{screens.length}</span>
@@ -131,12 +231,22 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
             })}
           </div>
 
-          <div className="flex-1 p-8 overflow-y-auto">
-            {Object.entries(flowGroups)
-              .filter(([flowName]) => !selectedFlow || selectedFlow === flowName)
-              .map(([flowName, screens]) => (
-              <div key={flowName} className="mb-8">
-                <h3 className="text-lg font-medium text-gray-900 mb-1">{flowName}</h3>
+          <div ref={scrollContainerRef} className="flex-1 p-8 overflow-y-auto">
+            {Object.entries(flowGroups).map(([flowName, screens]) => (
+              <div
+                key={flowName}
+                ref={el => { sectionRefs.current[flowName] = el; }}
+                data-flow={flowName}
+                className="mb-10"
+              >
+                <h3 className="text-lg font-medium text-gray-900">
+                  {flowName}
+                  {flowBreadcrumbs[flowName] && (
+                    <span className="font-normal text-gray-400">
+                      {' '}from <span className="font-medium text-gray-500">{flowBreadcrumbs[flowName]}</span>
+                    </span>
+                  )}
+                </h3>
                 <p className="text-sm text-gray-500 mb-4">{screens.length} screens</p>
                 <div className="flex gap-4 overflow-x-auto pb-4">
                   {screens.map(route => (
