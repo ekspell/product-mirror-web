@@ -1,20 +1,66 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, ArrowRight } from 'lucide-react';
 
 type Route = {
   id: string;
   name: string;
   path: string;
   flow_name?: string | null;
-  products: { name: string } | null;
+  products: { name: string } | { name: string }[] | null;
   captures: { screenshot_url: string; captured_at: string }[] | null;
 };
 
-export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
+type Connection = {
+  source_route_id: string;
+  destination_route_id: string;
+};
+
+type RouteNode = Route & {
+  children: RouteNode[];
+};
+
+function buildFlowTrees(routes: Route[], connections: Connection[]): Record<string, RouteNode[]> {
+  const routeMap = new Map<string, RouteNode>();
+  for (const route of routes) {
+    routeMap.set(route.id, { ...route, children: [] });
+  }
+
+  // Track which routes are destinations (have a parent)
+  const hasParent = new Set<string>();
+  for (const conn of connections) {
+    const parent = routeMap.get(conn.source_route_id);
+    const child = routeMap.get(conn.destination_route_id);
+    if (parent && child) {
+      parent.children.push(child);
+      hasParent.add(conn.destination_route_id);
+    }
+  }
+
+  // Root nodes = routes with no incoming connections, grouped by flow_name
+  const trees: Record<string, RouteNode[]> = {};
+  for (const route of routes) {
+    if (!hasParent.has(route.id)) {
+      const flowName = route.flow_name || 'Ungrouped';
+      if (!trees[flowName]) trees[flowName] = [];
+      trees[flowName].push(routeMap.get(route.id)!);
+    }
+  }
+
+  return trees;
+}
+
+export default function DashboardTabs({ routes, connections }: { routes: Route[] | null; connections: Connection[] | null }) {
   const [activeTab, setActiveTab] = useState('changes');
   const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
+
+  // Fall back to flat grouping if no connections exist yet
+  const hasConnections = connections && connections.length > 0;
+
+  const flowTrees = hasConnections && routes
+    ? buildFlowTrees(routes, connections)
+    : null;
 
   const flowGroups = routes?.reduce((acc, route) => {
     const flowName = route.flow_name || 'Ungrouped';
@@ -107,7 +153,7 @@ export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
                 
                 <div className="p-4">
                   <p className="font-medium text-gray-900">{route.name}</p>
-                  <p className="text-sm text-gray-500">{route.products?.name}</p>
+                  <p className="text-sm text-gray-500">{Array.isArray(route.products) ? route.products[0]?.name : route.products?.name}</p>
                 </div>
               </div>
             );
@@ -118,74 +164,63 @@ export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
       {activeTab === 'flows' && (
         <div className="flex">
           <div className="w-64 border-r border-gray-200 p-4">
-            {Object.keys(flowGroups).map(flowName => (
-              <div key={flowName} className="mb-2">
-                <button
-                  onClick={() => toggleFlow(flowName)}
-                  className="flex items-center gap-2 w-full text-left px-2 py-2 rounded-lg hover:bg-gray-100"
-                >
-                  {expandedFlows.includes(flowName) ? (
-                    <ChevronDown size={16} className="text-gray-500" />
-                  ) : (
-                    <ChevronRight size={16} className="text-gray-500" />
+            {Object.keys(flowTrees || flowGroups).map(flowName => {
+              const count = flowTrees
+                ? flowTrees[flowName]?.length
+                : flowGroups[flowName]?.length;
+              return (
+                <div key={flowName} className="mb-2">
+                  <button
+                    onClick={() => toggleFlow(flowName)}
+                    className="flex items-center gap-2 w-full text-left px-2 py-2 rounded-lg hover:bg-gray-100"
+                  >
+                    {expandedFlows.includes(flowName) ? (
+                      <ChevronDown size={16} className="text-gray-500" />
+                    ) : (
+                      <ChevronRight size={16} className="text-gray-500" />
+                    )}
+                    <span className="font-medium text-gray-900">{flowName}</span>
+                    <span className="ml-auto text-xs text-gray-500">{count}</span>
+                  </button>
+
+                  {expandedFlows.includes(flowName) && (
+                    <div className="ml-4 mt-1">
+                      {flowTrees
+                        ? flowTrees[flowName]?.map(node => <SidebarTreeNode key={node.id} node={node} depth={0} />)
+                        : flowGroups[flowName]?.map(route => (
+                            <div key={route.id} className="px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 rounded cursor-pointer">
+                              {route.name}
+                            </div>
+                          ))
+                      }
+                    </div>
                   )}
-                  <span className="font-medium text-gray-900">{flowName}</span>
-                  <span className="ml-auto text-xs text-gray-500">{flowGroups[flowName].length}</span>
-                </button>
-                
-                {expandedFlows.includes(flowName) && (
-                  <div className="ml-6 mt-1 space-y-1">
-                    {flowGroups[flowName].map(route => (
-                      <div key={route.id} className="px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 rounded cursor-pointer">
-                        {route.name}
-                      </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex-1 p-8">
+            {Object.entries(flowTrees || flowGroups).map(([flowName, flowRoutes]) => (
+              <div key={flowName} className="mb-8">
+                <h3 className="text-lg font-medium text-gray-900 mb-2">{flowName}</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  {(flowRoutes as RouteNode[] | Route[]).length} {flowTrees ? 'entry points' : 'screens'}
+                </p>
+
+                {flowTrees ? (
+                  <div className="space-y-4">
+                    {(flowRoutes as RouteNode[]).map(node => (
+                      <FlowTreeRow key={node.id} node={node} depth={0} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex gap-4 overflow-x-auto pb-4">
+                    {(flowRoutes as Route[]).map((route, index) => (
+                      <ScreenCard key={route.id} route={route} hasChanges={index === 0} />
                     ))}
                   </div>
                 )}
-              </div>
-            ))}
-          </div>
-          
-          <div className="flex-1 p-8">
-            {Object.entries(flowGroups).map(([flowName, flowRoutes]) => (
-              <div key={flowName} className="mb-8">
-                <h3 className="text-lg font-medium text-gray-900 mb-2">{flowName}</h3>
-                <p className="text-sm text-gray-500 mb-4">{flowRoutes.length} screens</p>
-                
-                <div className="flex gap-4 overflow-x-auto pb-4">
-                  {flowRoutes.map((route, index) => {
-                    const latestCapture = route.captures?.[0];
-                    const hasChanges = index === 0;
-                    
-                    return (
-                      <div key={route.id} className="flex-shrink-0 w-72 bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer">
-                        <div className="relative aspect-video bg-gray-200 overflow-hidden">
-                          {latestCapture?.screenshot_url ? (
-                            <img 
-                              src={latestCapture.screenshot_url} 
-                              alt={route.name || ''}
-                              className="w-full h-full object-cover object-top"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-gray-400">
-                              No capture yet
-                            </div>
-                          )}
-                          
-                          {hasChanges && (
-                            <div className="absolute top-3 left-3 bg-black/40 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
-                              5 changes • 1hr ago
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="p-3">
-                          <p className="font-medium text-gray-900 text-sm">{route.name}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
             ))}
           </div>
@@ -239,5 +274,74 @@ export default function DashboardTabs({ routes }: { routes: Route[] | null }) {
         </div>
       )}
     </>
+  );
+}
+
+function SidebarTreeNode({ node, depth }: { node: RouteNode; depth: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasChildren = node.children.length > 0;
+
+  return (
+    <div>
+      <button
+        onClick={() => hasChildren && setExpanded(!expanded)}
+        className="flex items-center gap-1 w-full text-left px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 rounded cursor-pointer"
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      >
+        {hasChildren ? (
+          expanded ? <ChevronDown size={12} className="text-gray-400 flex-shrink-0" /> : <ChevronRight size={12} className="text-gray-400 flex-shrink-0" />
+        ) : (
+          <span className="w-3 flex-shrink-0" />
+        )}
+        <span className="truncate">{node.name}</span>
+        {hasChildren && <span className="ml-auto text-xs text-gray-400">{node.children.length}</span>}
+      </button>
+      {expanded && node.children.map(child => (
+        <SidebarTreeNode key={child.id} node={child} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
+function FlowTreeRow({ node, depth }: { node: RouteNode; depth: number }) {
+  return (
+    <div>
+      <div className="flex items-center gap-3" style={{ marginLeft: `${depth * 40}px` }}>
+        {depth > 0 && <ArrowRight size={16} className="text-gray-400 flex-shrink-0" />}
+        <ScreenCard route={node} hasChanges={false} />
+      </div>
+      {node.children.map(child => (
+        <FlowTreeRow key={child.id} node={child} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
+function ScreenCard({ route, hasChanges }: { route: Route; hasChanges: boolean }) {
+  const latestCapture = route.captures?.[0];
+  return (
+    <div className="flex-shrink-0 w-72 bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer">
+      <div className="relative aspect-video bg-gray-200 overflow-hidden">
+        {latestCapture?.screenshot_url ? (
+          <img
+            src={latestCapture.screenshot_url}
+            alt={route.name || ''}
+            className="w-full h-full object-cover object-top"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-400">
+            No capture yet
+          </div>
+        )}
+        {hasChanges && (
+          <div className="absolute top-3 left-3 bg-black/40 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
+            5 changes &bull; 1hr ago
+          </div>
+        )}
+      </div>
+      <div className="p-3">
+        <p className="font-medium text-gray-900 text-sm">{route.name}</p>
+      </div>
+    </div>
   );
 }

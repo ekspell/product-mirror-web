@@ -15,6 +15,10 @@ export default async function Home() {
     `)
     .order('captured_at', { referencedTable: 'captures', ascending: false });
 
+  const { data: connections } = await supabase
+    .from('page_connections')
+    .select('source_route_id, destination_route_id');
+
   return (
     <div>
       <div className="p-8 pb-6">
@@ -39,7 +43,7 @@ export default async function Home() {
         <RunSweepButton />
       </div>
 
-      <DashboardTabs routes={routes} />
+      <DashboardTabs routes={routes} connections={connections} />
     </div>
   );
 }
