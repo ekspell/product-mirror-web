@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Trash2, ChevronRight } from 'lucide-react';
+import { Trash2, ChevronRight, X } from 'lucide-react';
 
 type Route = {
   id: string;
@@ -176,6 +176,7 @@ export default function DashboardTabs({ routes, connections, components }: { rou
   const [isResizing, setIsResizing] = useState(false);
   const [localComponents, setLocalComponents] = useState<Component[]>(components || []);
   const [flowScrollStates, setFlowScrollStates] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState('');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const flowScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -185,6 +186,21 @@ export default function DashboardTabs({ routes, connections, components }: { rou
   useEffect(() => {
     setLocalComponents(components || []);
   }, [components]);
+
+  // Filter data based on search query
+  const filteredRoutes = routes?.filter(route => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    const matchesScreenName = route.name?.toLowerCase().includes(query);
+    const matchesFlowName = route.flow_name?.toLowerCase().includes(query);
+    return matchesScreenName || matchesFlowName;
+  }) || [];
+
+  const filteredComponents = localComponents.filter(component => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return component.name.toLowerCase().includes(query);
+  });
 
   // Delete component handler
   const handleDeleteComponent = async (componentId: string, e: React.MouseEvent) => {
@@ -212,11 +228,11 @@ export default function DashboardTabs({ routes, connections, components }: { rou
   };
 
   const hasConnections = Array.isArray(connections) && connections.length > 0;
-  const flowTrees = hasConnections && routes
-    ? buildFlowTrees(routes, connections)
+  const flowTrees = hasConnections && filteredRoutes
+    ? buildFlowTrees(filteredRoutes, connections)
     : null;
 
-  const flowGroups = routes?.reduce((acc, route) => {
+  const flowGroups = filteredRoutes?.reduce((acc, route) => {
     const flowName = route.flow_name || 'Ungrouped';
     if (!acc[flowName]) {
       acc[flowName] = [];
@@ -387,17 +403,41 @@ export default function DashboardTabs({ routes, connections, components }: { rou
             </div>
           </div>
 
-          <input
-            type="text"
-            placeholder="Search"
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 placeholder-gray-500 bg-white"
-          />
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-2 pr-8 text-sm w-64 placeholder-gray-500 bg-white"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {activeTab === 'changes' && (
-        <div className="p-8 grid grid-cols-2 gap-6">
-          {routes?.map((route, index) => {
+        <div className="p-8">
+          {filteredRoutes.length === 0 && searchQuery ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-gray-500 mb-2">No results for "{searchQuery}"</p>
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-sm text-blue-600 hover:text-blue-700"
+              >
+                Clear search
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-6">
+              {filteredRoutes.map((route, index) => {
             const latestCapture = route.captures?.[0];
             const hasChanges = index % 2 === 0;
             const changeCount = (index % 5) + 2;
@@ -431,6 +471,8 @@ export default function DashboardTabs({ routes, connections, components }: { rou
               </div>
             );
           })}
+            </div>
+          )}
         </div>
       )}
 
@@ -520,7 +562,18 @@ export default function DashboardTabs({ routes, connections, components }: { rou
 
           {/* Main content area with horizontal scrolling flows */}
           <div ref={scrollContainerRef} className="flex-1 py-8 overflow-y-auto">
-            {flowNames.map(flowName => {
+            {flowNames.length === 0 && searchQuery ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <p className="text-gray-500 mb-2">No results for "{searchQuery}"</p>
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                >
+                  Clear search
+                </button>
+              </div>
+            ) : (
+              flowNames.map(flowName => {
               const screens = flowGroups[flowName];
               const showScrollButton = flowScrollStates[flowName] ?? true;
 
@@ -588,20 +641,21 @@ export default function DashboardTabs({ routes, connections, components }: { rou
                   </div>
                 </div>
               );
-            })}
+            })
+            )}
           </div>
         </div>
       )}
 
      {activeTab === 'components' && (
         <div className="p-8">
-          {localComponents && localComponents.length > 0 ? (
+          {filteredComponents.length > 0 ? (
             <>
               <p className="text-sm text-gray-500 mb-6">
-                {localComponents.length} UI components extracted across screens
+                {filteredComponents.length} UI components {searchQuery ? `matching "${searchQuery}"` : 'extracted across screens'}
               </p>
               <div className="grid grid-cols-4 gap-6">
-                {localComponents
+                {filteredComponents
                   .sort((a, b) => b.instance_count - a.instance_count)
                   .map(component => (
                     <div key={component.id} className="bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer transition-colors group relative">
@@ -629,6 +683,16 @@ export default function DashboardTabs({ routes, connections, components }: { rou
                   ))}
               </div>
             </>
+          ) : searchQuery ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-gray-500 mb-2">No results for "{searchQuery}"</p>
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-sm text-blue-600 hover:text-blue-700"
+              >
+                Clear search
+              </button>
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <p className="text-gray-500 mb-4">No components extracted yet</p>
