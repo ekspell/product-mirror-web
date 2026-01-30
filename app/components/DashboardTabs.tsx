@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Trash2, ChevronRight, X } from 'lucide-react';
+import { Trash2, ChevronRight, X, Search } from 'lucide-react';
 
 type Route = {
   id: string;
@@ -404,12 +404,13 @@ export default function DashboardTabs({ routes, connections, components }: { rou
           </div>
 
           <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             <input
               type="text"
               placeholder="Search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-2 pr-8 text-sm w-64 placeholder-gray-500 bg-white"
+              className="border border-gray-200 rounded-lg pl-10 pr-8 py-2 text-sm w-64 placeholder-gray-500 bg-white text-gray-900"
             />
             {searchQuery && (
               <button
