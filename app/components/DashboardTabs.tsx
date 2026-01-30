@@ -16,6 +16,14 @@ type Connection = {
   destination_route_id: string;
 };
 
+type Component = {
+  id: string;
+  name: string;
+  image_url: string;
+  instance_count: number;
+  screen_count: number;
+};
+
 type RouteNode = Route & {
   children: RouteNode[];
 };
@@ -157,12 +165,14 @@ function flattenFlowTrees(flowTrees: Record<string, RouteNode[]>, flowGroups: Re
   return sections;
 }
 
-export default function DashboardTabs({ routes, connections }: { routes: Route[] | null; connections: Connection[] | null }) {
+export default function DashboardTabs({ routes, connections, components }: { routes: Route[] | null; connections: Connection[] | null; components: Component[] | null }) {
   const [activeTab, setActiveTab] = useState('changes');
   const [visibleFlow, setVisibleFlow] = useState<string | null>(null);
   const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
   const [allExpanded, setAllExpanded] = useState(false);
   const [expandKey, setExpandKey] = useState(0);
+  const [treeNavWidth, setTreeNavWidth] = useState(320); // Default 320px
+  const [isResizing, setIsResizing] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const isScrollingTo = useRef(false);
@@ -275,34 +285,66 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
     }, 800);
   }, []);
 
+  // Handle tree nav resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = e.clientX;
+      // Constrain between 200px and 600px
+      if (newWidth >= 200 && newWidth <= 600) {
+        setTreeNavWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
 
   return (
     <>
-      <div className="border-t border-b border-gray-200 py-4">
-        <div className="px-8 flex items-center justify-between">
-          <div className="flex items-center">
-            <button className="flex items-center gap-2 text-base text-gray-500 pr-6 border-r border-gray-200">
+      <div className="border-t border-b border-gray-200">
+        <div className="px-8 flex items-center justify-between h-16">
+          <div className="flex items-center h-full">
+            <button className="flex items-center gap-2 text-base text-gray-500 pr-6 h-full relative">
               Latest
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-gray-400">
                 <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
+              {/* Full-height divider */}
+              <div className="absolute right-0 top-0 bottom-0 w-px bg-gray-200"></div>
             </button>
-            
+
             <div className="flex items-center gap-6 pl-6">
-              <button 
+              <button
                 onClick={() => setActiveTab('changes')}
                 className={`text-base pb-1 ${activeTab === 'changes' ? 'font-medium text-gray-900 border-b-2 border-gray-900' : 'text-gray-500'}`}
               >
                 Changes
                 <span className="ml-2 bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">10</span>
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('flows')}
                 className={`text-base pb-1 ${activeTab === 'flows' ? 'font-medium text-gray-900 border-b-2 border-gray-900' : 'text-gray-500'}`}
               >
                 Flows
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('components')}
                 className={`text-base pb-1 ${activeTab === 'components' ? 'font-medium text-gray-900 border-b-2 border-gray-900' : 'text-gray-500'}`}
               >
@@ -310,11 +352,11 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
               </button>
             </div>
           </div>
-          
-          <input 
-            type="text" 
-            placeholder="Search" 
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 placeholder-gray-500"
+
+          <input
+            type="text"
+            placeholder="Search"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 placeholder-gray-500 bg-white"
           />
         </div>
       </div>
@@ -328,10 +370,10 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
             
             return (
               <div key={route.id} className="bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer">
-                <div className="relative aspect-video bg-gray-200 overflow-hidden">
+                <div className="relative aspect-video bg-gray-200 overflow-hidden rounded-lg">
                   {latestCapture?.screenshot_url ? (
-                    <img 
-                      src={latestCapture.screenshot_url} 
+                    <img
+                      src={latestCapture.screenshot_url}
                       alt={route.name || ''}
                       className="w-full h-full object-cover object-top"
                     />
@@ -340,14 +382,14 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
                       No capture yet
                     </div>
                   )}
-                  
+
                   {hasChanges && (
                     <div className="absolute top-3 left-3 bg-black/40 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
                       {changeCount} changes • 1hr ago
                     </div>
                   )}
                 </div>
-                
+
                 <div className="p-4">
                   <p className="font-medium text-gray-900">{route.name}</p>
                   <p className="text-sm text-gray-500">{Array.isArray(route.products) ? route.products[0]?.name : route.products?.name}</p>
@@ -360,7 +402,11 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
 
       {activeTab === 'flows' && (
         <div className="flex" style={{ height: 'calc(100vh - 160px)' }}>
-          <div className="w-64 border-r border-gray-200 py-2 overflow-y-auto flex-shrink-0">
+          {/* Resizable Tree Navigation */}
+          <div
+            className="py-2 overflow-y-auto flex-shrink-0 relative"
+            style={{ width: `${treeNavWidth}px` }}
+          >
             <button
               onClick={() => {
                 if (allExpanded) {
@@ -396,7 +442,7 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
                         );
                       }
                     }}
-                    className={`flex items-center gap-1.5 w-full text-left px-3 py-2 text-sm transition-colors ${isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
+                    className={`flex items-center gap-1.5 w-full text-left px-3 py-2 text-base transition-colors ${isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
                   >
                     {hasChildren ? (
                       <svg
@@ -430,6 +476,12 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
                 </div>
               );
             })}
+
+            {/* Resize handle */}
+            <div
+              onMouseDown={handleMouseDown}
+              className={`absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 transition-colors ${isResizing ? 'bg-blue-500' : ''}`}
+            />
           </div>
 
           <div ref={scrollContainerRef} className="flex-1 p-8 overflow-y-auto">
@@ -438,11 +490,11 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
                 key={section.key}
                 ref={el => { sectionRefs.current[section.key] = el; }}
                 data-flow={section.key}
-                className="mb-10"
+                className="mb-16"
               >
-                <div className="flex gap-4 overflow-x-auto pb-4">
+                <div className="flex flex-col gap-6 pb-6">
                   {section.routes.map(route => (
-                    <ScreenCard key={route.id} route={route} hasChanges={false} hideLabel />
+                    <ScreenCard key={route.id} route={route} hasChanges={false} hideLabel large />
                   ))}
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mt-2">
@@ -453,7 +505,7 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
                     </span>
                   )}
                 </h3>
-                <p className="text-sm text-gray-500">{section.routes.length} screens</p>
+                <p className="text-sm text-gray-500">{section.routes.length} {section.routes.length === 1 ? 'screen' : 'screens'}</p>
               </div>
             ))}
           </div>
@@ -462,84 +514,48 @@ export default function DashboardTabs({ routes, connections }: { routes: Route[]
 
      {activeTab === 'components' && (
         <div className="p-8">
-          <p className="text-sm text-gray-500 mb-6">UI components identified across captured screens</p>
-          <div className="grid grid-cols-2 gap-6">
-            {getComponentExamples(routes).map(example => (
-              <div key={example.label} className="bg-gray-50 rounded-lg overflow-hidden">
-                <div className="relative aspect-video bg-gray-200 overflow-hidden">
-                  {example.screenshotUrl ? (
-                    <img
-                      src={example.screenshotUrl}
-                      alt={example.label}
-                      className="w-full h-full object-cover object-top"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      No capture
+          {components && components.length > 0 ? (
+            <>
+              <p className="text-sm text-gray-500 mb-6">
+                {components.length} UI components extracted across screens
+              </p>
+              <div className="grid grid-cols-4 gap-6">
+                {components
+                  .sort((a, b) => b.instance_count - a.instance_count)
+                  .map(component => (
+                    <div key={component.id} className="bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer transition-colors">
+                      <div className="relative aspect-square bg-white overflow-hidden flex items-center justify-center p-4">
+                        <img
+                          src={component.image_url}
+                          alt={component.name}
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      </div>
+                      <div className="p-4">
+                        <p className="font-medium text-gray-900 text-sm">{component.name}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {component.instance_count} {component.instance_count === 1 ? 'instance' : 'instances'} across {component.screen_count} {component.screen_count === 1 ? 'screen' : 'screens'}
+                        </p>
+                      </div>
                     </div>
-                  )}
-                </div>
-                <div className="p-4">
-                  <p className="font-medium text-gray-900 text-sm">{example.label}</p>
-                  <p className="text-xs text-gray-500 mt-1">Found in: {example.screenName}</p>
-                </div>
+                  ))}
               </div>
-            ))}
-          </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-gray-500 mb-4">No components extracted yet</p>
+              <p className="text-xs text-gray-400 max-w-md">
+                Run component extraction to automatically identify and catalog UI components from your screenshots
+              </p>
+            </div>
+          )}
         </div>
       )}
     </>
   );
 }
 
-function getComponentExamples(routes: Route[] | null): { label: string; screenName: string; screenshotUrl: string | null }[] {
-  if (!routes || routes.length === 0) return [];
-
-  // Map component types to route name patterns that likely contain them
-  const componentPatterns: { label: string; keywords: RegExp }[] = [
-    { label: 'Primary button', keywords: /event|setup|create|new|schedule/i },
-    { label: 'Navigation tabs', keywords: /home|dashboard|overview/i },
-    { label: 'Form inputs', keywords: /settings|profile|personal|account/i },
-    { label: 'Toggle controls', keywords: /availability|notification|preference/i },
-  ];
-
-  const examples: { label: string; screenName: string; screenshotUrl: string | null }[] = [];
-  const usedRouteIds = new Set<string>();
-
-  for (const pattern of componentPatterns) {
-    // Find a route matching this pattern that hasn't been used yet
-    const match = routes.find(r =>
-      !usedRouteIds.has(r.id) &&
-      (pattern.keywords.test(r.name) || pattern.keywords.test(r.path)) &&
-      r.captures?.[0]?.screenshot_url
-    );
-
-    if (match) {
-      usedRouteIds.add(match.id);
-      examples.push({
-        label: pattern.label,
-        screenName: match.name,
-        screenshotUrl: match.captures?.[0]?.screenshot_url || null,
-      });
-    }
-  }
-
-  // If we didn't find enough matches, fill with any routes that have screenshots
-  if (examples.length < 4) {
-    for (const route of routes) {
-      if (examples.length >= 4) break;
-      if (usedRouteIds.has(route.id) || !route.captures?.[0]?.screenshot_url) continue;
-      usedRouteIds.add(route.id);
-      examples.push({
-        label: `UI pattern`,
-        screenName: route.name,
-        screenshotUrl: route.captures[0].screenshot_url,
-      });
-    }
-  }
-
-  return examples;
-}
+// Component examples function removed - now using AI-extracted components from database
 
 function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowName, defaultExpanded }: {
   node: RouteNode;
@@ -572,7 +588,7 @@ function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowNam
           if (hasChildren) setExpanded(!expanded);
           if (node.flow_name) onScrollTo(node.flow_name);
         }}
-        className="relative flex items-center gap-1 w-full text-left py-1.5 text-sm text-gray-600 hover:bg-gray-50 rounded transition-colors"
+        className="relative flex items-center gap-1 w-full text-left py-1.5 text-base text-gray-600 hover:bg-gray-50 rounded transition-colors"
         style={{ paddingLeft: `${indent + 18}px` }}
       >
         {hasChildren ? (
@@ -585,7 +601,7 @@ function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowNam
         ) : (
           <span className="w-2.5 flex-shrink-0" />
         )}
-        <span className="truncate text-xs">{displayName}</span>
+        <span className="truncate text-base">{displayName}</span>
       </button>
       {expanded && hasChildren && (
         <div className="relative">
@@ -607,11 +623,18 @@ function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowNam
   );
 }
 
-function ScreenCard({ route, hasChanges, hideLabel }: { route: Route; hasChanges: boolean; hideLabel?: boolean }) {
+function ScreenCard({ route, hasChanges, hideLabel, large }: { route: Route; hasChanges: boolean; hideLabel?: boolean; large?: boolean }) {
   const latestCapture = route.captures?.[0];
+
+  // For large cards on 1440px desktop, use most of viewport width minus tree nav and padding
+  // This will make each screenshot fill ~90% of visible area with ~50% of next one visible
+  const cardClass = large
+    ? "w-full bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer"
+    : "flex-shrink-0 w-72 bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer";
+
   return (
-    <div className="flex-shrink-0 w-72 bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer">
-      <div className="relative aspect-video bg-gray-200 overflow-hidden">
+    <div className={cardClass}>
+      <div className="relative aspect-video bg-gray-200 overflow-hidden rounded-lg">
         {latestCapture?.screenshot_url ? (
           <img
             src={latestCapture.screenshot_url}

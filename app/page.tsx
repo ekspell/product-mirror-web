@@ -20,7 +20,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
 
   const { data: products } = await supabase
     .from('products')
-    .select('id, name, staging_url')
+    .select('id, name, staging_url, auth_state')
     .order('name');
 
   // Routes query — filter by product if selected
@@ -52,6 +52,34 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   }
   const { data: connections } = await connectionsQuery;
 
+  // Components query — fetch with instance counts
+  let componentsQuery = supabase
+    .from('components')
+    .select(`
+      id,
+      name,
+      image_url,
+      component_instances (
+        id,
+        route_id
+      )
+    `)
+    .order('created_at', { ascending: false });
+
+  if (activeProductId) {
+    componentsQuery = componentsQuery.eq('product_id', activeProductId);
+  }
+  const { data: componentsRaw } = await componentsQuery;
+
+  // Transform components data to include counts
+  const components = componentsRaw?.map(comp => ({
+    id: comp.id,
+    name: comp.name,
+    image_url: comp.image_url,
+    instance_count: comp.component_instances?.length || 0,
+    screen_count: new Set(comp.component_instances?.map((i: any) => i.route_id)).size || 0,
+  })) || [];
+
   // Latest capture — filter by product via route join if selected
   let latestCaptureQuery = supabase
     .from('captures')
@@ -80,6 +108,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
     ? timeAgo(new Date(latestCapture.captured_at))
     : 'Never';
 
+  // Get unique flow names for the sweep settings modal
+  const flows = routes
+    ? Array.from(new Set(routes.map(r => r.flow_name).filter(Boolean))) as string[]
+    : [];
+
   return (
     <div>
       <div className="p-8 pb-6">
@@ -98,10 +131,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           </div>
         </div>
 
-        <RunSweepButton />
+        <RunSweepButton flows={flows} />
       </div>
 
-      <DashboardTabs routes={routes} connections={connections} />
+      <DashboardTabs routes={routes} connections={connections} components={components} />
     </div>
   );
 }

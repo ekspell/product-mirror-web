@@ -20,8 +20,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} font-sans antialiased`}>
-        <div className="flex h-screen bg-white">
+      <body className={`${inter.variable} font-sans antialiased`} style={{ backgroundColor: '#F2F2F2' }}>
+        <div className="flex h-screen" style={{ backgroundColor: '#F2F2F2' }}>
           <Sidebar />
           <main className="flex-1 overflow-auto">
             {children}
