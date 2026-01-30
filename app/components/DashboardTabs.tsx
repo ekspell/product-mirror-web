@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { Trash2 } from 'lucide-react';
 
 type Route = {
   id: string;
@@ -173,9 +174,40 @@ export default function DashboardTabs({ routes, connections, components }: { rou
   const [expandKey, setExpandKey] = useState(0);
   const [treeNavWidth, setTreeNavWidth] = useState(320); // Default 320px
   const [isResizing, setIsResizing] = useState(false);
+  const [localComponents, setLocalComponents] = useState<Component[]>(components || []);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const isScrollingTo = useRef(false);
+
+  // Update local components when props change
+  useEffect(() => {
+    setLocalComponents(components || []);
+  }, [components]);
+
+  // Delete component handler
+  const handleDeleteComponent = async (componentId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click event
+
+    if (!confirm('Are you sure you want to delete this component? This will also delete all instances.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/components/${componentId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete component');
+      }
+
+      // Update local state to remove the deleted component
+      setLocalComponents(prev => prev.filter(c => c.id !== componentId));
+    } catch (error) {
+      console.error('Error deleting component:', error);
+      alert('Failed to delete component. Please try again.');
+    }
+  };
 
   const hasConnections = Array.isArray(connections) && connections.length > 0;
   const flowTrees = hasConnections && routes
@@ -514,22 +546,29 @@ export default function DashboardTabs({ routes, connections, components }: { rou
 
      {activeTab === 'components' && (
         <div className="p-8">
-          {components && components.length > 0 ? (
+          {localComponents && localComponents.length > 0 ? (
             <>
               <p className="text-sm text-gray-500 mb-6">
-                {components.length} UI components extracted across screens
+                {localComponents.length} UI components extracted across screens
               </p>
               <div className="grid grid-cols-4 gap-6">
-                {components
+                {localComponents
                   .sort((a, b) => b.instance_count - a.instance_count)
                   .map(component => (
-                    <div key={component.id} className="bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer transition-colors">
+                    <div key={component.id} className="bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer transition-colors group relative">
                       <div className="relative aspect-square bg-white overflow-hidden flex items-center justify-center p-4">
                         <img
                           src={component.image_url}
                           alt={component.name}
                           className="max-w-full max-h-full object-contain"
                         />
+                        <button
+                          onClick={(e) => handleDeleteComponent(component.id, e)}
+                          className="absolute top-2 right-2 p-2 bg-white rounded-lg shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 hover:text-red-600"
+                          title="Delete component"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                       <div className="p-4">
                         <p className="font-medium text-gray-900 text-sm">{component.name}</p>
