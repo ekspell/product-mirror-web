@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, ChevronRight } from 'lucide-react';
 
 type Route = {
   id: string;
@@ -175,8 +175,10 @@ export default function DashboardTabs({ routes, connections, components }: { rou
   const [treeNavWidth, setTreeNavWidth] = useState(320); // Default 320px
   const [isResizing, setIsResizing] = useState(false);
   const [localComponents, setLocalComponents] = useState<Component[]>(components || []);
+  const [flowScrollStates, setFlowScrollStates] = useState<Record<string, boolean>>({});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const flowScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const isScrollingTo = useRef(false);
 
   // Update local components when props change
@@ -433,114 +435,71 @@ export default function DashboardTabs({ routes, connections, components }: { rou
       )}
 
       {activeTab === 'flows' && (
-        <div className="flex" style={{ height: 'calc(100vh - 160px)' }}>
-          {/* Resizable Tree Navigation */}
-          <div
-            className="py-2 overflow-y-auto flex-shrink-0 relative"
-            style={{ width: `${treeNavWidth}px` }}
-          >
-            <button
-              onClick={() => {
-                if (allExpanded) {
-                  setExpandedFlows([]);
-                  setAllExpanded(false);
-                } else {
-                  setExpandedFlows([...flowNames]);
-                  setAllExpanded(true);
-                }
-                setExpandKey(k => k + 1);
-              }}
-              className="px-3 py-1.5 mb-1 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
-            >
-              {allExpanded ? 'Collapse all' : 'Expand all'}
-            </button>
-            {flowNames.map(flowName => {
-              const screens = flowGroups[flowName];
-              const isActive = visibleFlow === flowName;
-              const isExpanded = expandedFlows.includes(flowName);
-              const treeNodes = flowTrees?.[flowName];
-              const hasChildren = treeNodes && treeNodes.length > 0;
+        <div className="py-8 overflow-y-auto" style={{ height: 'calc(100vh - 160px)' }}>
+          {flowNames.map(flowName => {
+            const screens = flowGroups[flowName];
+            const showScrollButton = flowScrollStates[flowName] ?? true;
 
-              return (
-                <div key={flowName}>
-                  <button
-                    onClick={() => {
-                      scrollToFlow(flowName);
-                      if (hasChildren) {
-                        setExpandedFlows(prev =>
-                          prev.includes(flowName)
-                            ? prev.filter(f => f !== flowName)
-                            : [...prev, flowName]
-                        );
-                      }
+            const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+              const target = e.currentTarget;
+              const hasMore = target.scrollWidth > target.clientWidth + target.scrollLeft + 10;
+              if (hasMore !== showScrollButton) {
+                setFlowScrollStates(prev => ({ ...prev, [flowName]: hasMore }));
+              }
+            };
+
+            const handleScrollClick = () => {
+              const scrollContainer = flowScrollRefs.current[flowName];
+              if (scrollContainer) {
+                scrollContainer.scrollBy({ left: 396, behavior: 'smooth' }); // 380px card + 16px gap
+              }
+            };
+
+            return (
+              <div key={flowName} className="mb-12 px-8">
+                {/* Flow header */}
+                <div className="mb-4">
+                  <h3 className="text-lg font-medium text-gray-900">{flowName}</h3>
+                  <p className="text-sm text-gray-500">{screens.length} {screens.length === 1 ? 'screen' : 'screens'}</p>
+                </div>
+
+                {/* Horizontal scroll container with gradient */}
+                <div className="relative">
+                  <div
+                    ref={el => { flowScrollRefs.current[flowName] = el; }}
+                    className="flex overflow-x-auto overflow-y-hidden pb-2 scrollbar-hide"
+                    onScroll={handleScroll}
+                    style={{
+                      gap: '16px',
+                      WebkitOverflowScrolling: 'touch',
                     }}
-                    className={`flex items-center gap-1.5 w-full text-left px-3 py-2 text-base transition-colors ${isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
                   >
-                    {hasChildren ? (
-                      <svg
-                        width="12" height="12" viewBox="0 0 12 12"
-                        className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                    {screens.map(route => (
+                      <FlowScreenCard key={route.id} route={route} />
+                    ))}
+                  </div>
+
+                  {/* Right gradient fade with arrow button */}
+                  {showScrollButton && (
+                    <div
+                      className="absolute right-0 top-0 bottom-2 flex items-center justify-end pr-4 pointer-events-none"
+                      style={{
+                        width: '80px',
+                        background: 'linear-gradient(to left, white 0%, white 50%, transparent 100%)'
+                      }}
+                    >
+                      <button
+                        onClick={handleScrollClick}
+                        className="w-12 h-12 rounded-full bg-gray-900 text-white flex items-center justify-center pointer-events-auto hover:bg-gray-800 transition-colors shadow-lg"
                       >
-                        <path d="M4 2L8 6L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                      </svg>
-                    ) : (
-                      <span className="w-3 flex-shrink-0" />
-                    )}
-                    <span className="truncate">{flowName}</span>
-                    <span className="text-xs text-gray-400 ml-auto flex-shrink-0">{flowScreenCounts[flowName] || screens.length}</span>
-                  </button>
-                  {isExpanded && hasChildren && (
-                    <div className="relative">
-                      {treeNodes.map((node, i) => (
-                        <SidebarTreeNode
-                          key={`${node.id}-${expandKey}`}
-                          node={node}
-                          depth={1}
-                          isLast={i === treeNodes.length - 1}
-                          visibleFlow={visibleFlow}
-                          onScrollTo={scrollToFlow}
-                          flowName={flowName}
-                          defaultExpanded={allExpanded}
-                        />
-                      ))}
+                        <ChevronRight className="w-6 h-6" />
+                      </button>
                     </div>
                   )}
                 </div>
-              );
-            })}
-
-            {/* Resize handle */}
-            <div
-              onMouseDown={handleMouseDown}
-              className={`absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 transition-colors ${isResizing ? 'bg-blue-500' : ''}`}
-            />
-          </div>
-
-          <div ref={scrollContainerRef} className="flex-1 p-8 overflow-y-auto">
-            {flowSections.map(section => (
-              <div
-                key={section.key}
-                ref={el => { sectionRefs.current[section.key] = el; }}
-                data-flow={section.key}
-                className="mb-16"
-              >
-                <div className="flex flex-col gap-6 pb-6">
-                  {section.routes.map(route => (
-                    <ScreenCard key={route.id} route={route} hasChanges={false} hideLabel large />
-                  ))}
-                </div>
-                <h3 className="text-lg font-medium text-gray-900 mt-2">
-                  {section.label}
-                  {section.parentLabel && (
-                    <span className="font-normal text-gray-400">
-                      {' '}from <span className="font-medium text-gray-500">{section.parentLabel}</span>
-                    </span>
-                  )}
-                </h3>
-                <p className="text-sm text-gray-500">{section.routes.length} {section.routes.length === 1 ? 'screen' : 'screens'}</p>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
 
@@ -658,6 +617,29 @@ function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowNam
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function FlowScreenCard({ route }: { route: Route }) {
+  const latestCapture = route.captures?.[0];
+
+  return (
+    <div className="flex-shrink-0 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+         style={{ width: '380px', height: '232px' }}>
+      <div className="relative w-full h-full bg-gray-200">
+        {latestCapture?.screenshot_url ? (
+          <img
+            src={latestCapture.screenshot_url}
+            alt={route.name || ''}
+            className="w-full h-full object-cover object-top"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-400">
+            No capture yet
+          </div>
+        )}
+      </div>
     </div>
   );
 }
