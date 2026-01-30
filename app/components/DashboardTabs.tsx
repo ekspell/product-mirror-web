@@ -546,12 +546,6 @@ export default function DashboardTabs({ routes, connections, components }: { rou
                   ref={el => { sectionRefs.current[flowName] = el; }}
                   data-flow={flowName}
                 >
-                  {/* Flow header */}
-                  <div className="mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">{flowName}</h3>
-                    <p className="text-sm text-gray-500">{screens.length} {screens.length === 1 ? 'screen' : 'screens'}</p>
-                  </div>
-
                   {/* Horizontal scroll container with gradient */}
                   <div className="relative">
                     <div
@@ -585,6 +579,12 @@ export default function DashboardTabs({ routes, connections, components }: { rou
                         </button>
                       </div>
                     )}
+                  </div>
+
+                  {/* Flow header below the cards */}
+                  <div className="mt-4">
+                    <h3 className="text-lg font-medium text-gray-900">{flowName}</h3>
+                    <p className="text-sm text-gray-500">{screens.length} {screens.length === 1 ? 'screen' : 'screens'}</p>
                   </div>
                 </div>
               );
