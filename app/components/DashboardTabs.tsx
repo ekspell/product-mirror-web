@@ -442,10 +442,10 @@ export default function DashboardTabs({ routes, connections, components }: { rou
             const latestCapture = route.captures?.[0];
             const hasChanges = index % 2 === 0;
             const changeCount = (index % 5) + 2;
-            
+
             return (
-              <div key={route.id} className="bg-gray-50 rounded-lg overflow-hidden hover:bg-gray-100 cursor-pointer">
-                <div className="relative aspect-video bg-gray-200 overflow-hidden rounded-lg">
+              <div key={route.id} className="rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+                <div className="relative aspect-video bg-gray-200">
                   {latestCapture?.screenshot_url ? (
                     <img
                       src={latestCapture.screenshot_url}
@@ -463,11 +463,6 @@ export default function DashboardTabs({ routes, connections, components }: { rou
                       {changeCount} changes • 1hr ago
                     </div>
                   )}
-                </div>
-
-                <div className="p-4">
-                  <p className="font-medium text-gray-900">{route.name}</p>
-                  <p className="text-sm text-gray-500">{Array.isArray(route.products) ? route.products[0]?.name : route.products?.name}</p>
                 </div>
               </div>
             );
