@@ -663,7 +663,7 @@ export default function DashboardTabs({ routes, connections, components }: { rou
                         />
                         <button
                           onClick={(e) => handleDeleteComponent(component.id, e)}
-                          className="absolute top-2 right-2 p-2 bg-white rounded-lg shadow-md hover:bg-red-50 hover:text-red-600 transition-colors"
+                          className="absolute top-2 right-2 p-2 bg-white rounded-lg hover:shadow-md hover:bg-red-50 hover:text-red-600 transition-all"
                           title="Delete component"
                         >
                           <Trash2 className="w-4 h-4" />
