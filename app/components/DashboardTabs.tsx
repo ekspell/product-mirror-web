@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Trash2, ChevronRight, X, Search } from 'lucide-react';
+import ScreenDetailModal from './ScreenDetailModal';
+import JSZip from 'jszip';
 
 type Route = {
   id: string;
@@ -9,7 +11,7 @@ type Route = {
   path: string;
   flow_name?: string | null;
   products: { name: string } | { name: string }[] | null;
-  captures: { screenshot_url: string; captured_at: string }[] | null;
+  captures: { screenshot_url: string; captured_at: string; has_changes?: boolean; change_summary?: string }[] | null;
 };
 
 type Connection = {
@@ -177,6 +179,10 @@ export default function DashboardTabs({ routes, connections, components }: { rou
   const [localComponents, setLocalComponents] = useState<Component[]>(components || []);
   const [flowScrollStates, setFlowScrollStates] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
+  const [flowHoverStates, setFlowHoverStates] = useState<Record<string, boolean>>({});
+  const [flowCopyingStates, setFlowCopyingStates] = useState<Record<string, boolean>>({});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const flowScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -201,6 +207,18 @@ export default function DashboardTabs({ routes, connections, components }: { rou
     const query = searchQuery.toLowerCase();
     return component.name.toLowerCase().includes(query);
   });
+
+  // Open screen detail modal
+  const handleScreenClick = (route: Route) => {
+    setSelectedRoute(route);
+    setIsModalOpen(true);
+  };
+
+  // Close modal
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedRoute(null);
+  };
 
   // Delete component handler
   const handleDeleteComponent = async (componentId: string, e: React.MouseEvent) => {
@@ -426,49 +444,69 @@ export default function DashboardTabs({ routes, connections, components }: { rou
 
       {activeTab === 'changes' && (
         <div className="p-8">
-          {filteredRoutes.length === 0 && searchQuery ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <p className="text-gray-500 mb-2">No results for "{searchQuery}"</p>
-              <button
-                onClick={() => setSearchQuery('')}
-                className="text-sm text-blue-600 hover:text-blue-700"
-              >
-                Clear search
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-6">
-              {filteredRoutes.map((route, index) => {
-            const latestCapture = route.captures?.[0];
-            const hasChanges = index % 2 === 0;
-            const changeCount = (index % 5) + 2;
+          {(() => {
+            const routesWithChanges = filteredRoutes.filter(route => {
+              const latestCapture = route.captures?.[0];
+              return latestCapture?.has_changes === true;
+            });
 
-            return (
-              <div key={route.id} className="rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer">
-                <div className="relative aspect-video bg-gray-200">
-                  {latestCapture?.screenshot_url ? (
-                    <img
-                      src={latestCapture.screenshot_url}
-                      alt={route.name || ''}
-                      className="w-full h-full object-cover object-top"
-                    />
+            if (routesWithChanges.length === 0) {
+              return (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <p className="text-gray-500 mb-2">
+                    {searchQuery ? `No changes found for "${searchQuery}"` : 'No changes detected yet'}
+                  </p>
+                  {searchQuery ? (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="text-sm text-blue-600 hover:text-blue-700"
+                    >
+                      Clear search
+                    </button>
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      No capture yet
-                    </div>
-                  )}
-
-                  {hasChanges && (
-                    <div className="absolute top-3 left-3 bg-black/40 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
-                      {changeCount} changes • 1hr ago
-                    </div>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Run another sweep to detect changes
+                    </p>
                   )}
                 </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-2 gap-6">
+                {routesWithChanges.map(route => {
+                  const latestCapture = route.captures?.[0];
+                  const changeSummary = latestCapture?.change_summary || 'Changes detected';
+
+                  return (
+                    <div
+                      key={route.id}
+                      onClick={() => handleScreenClick(route)}
+                      className="rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                    >
+                      <div className="relative aspect-video bg-gray-200">
+                        {latestCapture?.screenshot_url ? (
+                          <img
+                            src={latestCapture.screenshot_url}
+                            alt={route.name || ''}
+                            className="w-full h-full object-cover object-top"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-400">
+                            No screenshot
+                          </div>
+                        )}
+
+                        <div className="absolute top-3 left-3 bg-red-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
+                          {changeSummary}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             );
-          })}
-            </div>
-          )}
+          })()}
         </div>
       )}
 
@@ -571,7 +609,9 @@ export default function DashboardTabs({ routes, connections, components }: { rou
             ) : (
               flowNames.map(flowName => {
               const screens = flowGroups[flowName];
-              const showScrollButton = flowScrollStates[flowName] ?? true;
+              const showScrollButton = flowScrollStates[flowName] ?? false;
+              const isHovering = flowHoverStates[flowName] ?? false;
+              const isCopying = flowCopyingStates[flowName] ?? false;
 
               const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
                 const target = e.currentTarget;
@@ -588,17 +628,146 @@ export default function DashboardTabs({ routes, connections, components }: { rou
                 }
               };
 
+              const handleCopyToFigma = async () => {
+                setFlowCopyingStates(prev => ({ ...prev, [flowName]: true }));
+                try {
+                  // Get all screenshot URLs from this flow
+                  const imageUrls = screens
+                    .map(screen => screen.captures?.[0]?.screenshot_url)
+                    .filter(Boolean) as string[];
+
+                  if (imageUrls.length === 0) {
+                    alert('No screenshots available to copy');
+                    setFlowCopyingStates(prev => ({ ...prev, [flowName]: false }));
+                    return;
+                  }
+
+                  // Split into batches of 6 for better quality
+                  const BATCH_SIZE = 6;
+                  const batches: string[][] = [];
+                  for (let i = 0; i < imageUrls.length; i += BATCH_SIZE) {
+                    batches.push(imageUrls.slice(i, i + BATCH_SIZE));
+                  }
+
+                  // Process each batch
+                  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+                    const batch = batches[batchIndex];
+
+                    // Load images for this batch
+                    const images = await Promise.all(
+                      batch.map(url => {
+                        return new Promise<HTMLImageElement>((resolve, reject) => {
+                          const img = new Image();
+                          img.crossOrigin = 'anonymous';
+                          img.onload = () => resolve(img);
+                          img.onerror = reject;
+                          img.src = url;
+                        });
+                      })
+                    );
+
+                    // Use NATURAL dimensions (full resolution)
+                    const gap = 80;
+                    const maxHeight = Math.max(...images.map(img => img.naturalHeight));
+                    const totalWidth = images.reduce((sum, img) => sum + img.naturalWidth, 0) + (gap * (images.length - 1));
+
+                    // Create high-resolution canvas
+                    const canvas = document.createElement('canvas');
+                    canvas.width = totalWidth;
+                    canvas.height = maxHeight;
+                    const ctx = canvas.getContext('2d', { alpha: false });
+
+                    if (!ctx) {
+                      throw new Error('Could not get canvas context');
+                    }
+
+                    // Fill with white background
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, totalWidth, maxHeight);
+
+                    // Draw each image at FULL resolution
+                    let currentX = 0;
+                    for (const img of images) {
+                      const y = (maxHeight - img.naturalHeight) / 2;
+                      ctx.drawImage(img, currentX, y, img.naturalWidth, img.naturalHeight);
+                      currentX += img.naturalWidth + gap;
+                    }
+
+                    // Convert to blob and download
+                    await new Promise<void>((resolve, reject) => {
+                      canvas.toBlob(async (blob) => {
+                        if (!blob) {
+                          reject(new Error('Failed to create image blob'));
+                          return;
+                        }
+
+                        try {
+                          // Download the image
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+
+                          // Create filename based on batch
+                          if (batches.length > 1) {
+                            a.download = `${flowName}_Batch${batchIndex + 1}.png`;
+                          } else {
+                            a.download = `${flowName}.png`;
+                          }
+
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
+
+                          resolve();
+                        } catch (err) {
+                          reject(err);
+                        }
+                      }, 'image/png', 1.0);
+                    });
+
+                    // Small delay between downloads
+                    if (batchIndex < batches.length - 1) {
+                      await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                  }
+
+                  if (batches.length > 1) {
+                    alert(`Downloaded ${batches.length} high-quality images! Drag them into Figma.`);
+                  } else {
+                    alert(`Downloaded ${imageUrls.length} screenshots! Drag into Figma.`);
+                  }
+
+                  setFlowCopyingStates(prev => ({ ...prev, [flowName]: false }));
+                } catch (error) {
+                  console.error('Failed to download screenshots:', error);
+                  alert('Failed to download screenshots. Please try again.');
+                  setFlowCopyingStates(prev => ({ ...prev, [flowName]: false }));
+                }
+              };
+
               return (
                 <div
                   key={flowName}
-                  className="mb-12 px-8"
+                  className="mb-12 px-8 relative group"
                   ref={el => { sectionRefs.current[flowName] = el; }}
                   data-flow={flowName}
+                  onMouseEnter={() => setFlowHoverStates(prev => ({ ...prev, [flowName]: true }))}
+                  onMouseLeave={() => setFlowHoverStates(prev => ({ ...prev, [flowName]: false }))}
                 >
                   {/* Horizontal scroll container with gradient */}
                   <div className="relative">
                     <div
-                      ref={el => { flowScrollRefs.current[flowName] = el; }}
+                      ref={el => {
+                        flowScrollRefs.current[flowName] = el;
+                        // Check if overflow exists on initial render
+                        if (el && flowScrollStates[flowName] === undefined) {
+                          const hasOverflow = el.scrollWidth > el.clientWidth;
+                          if (hasOverflow) {
+                            setFlowScrollStates(prev => ({ ...prev, [flowName]: true }));
+                          }
+                        }
+                      }}
                       className="flex overflow-x-auto overflow-y-hidden pb-2 scrollbar-hide"
                       onScroll={handleScroll}
                       style={{
@@ -607,11 +776,11 @@ export default function DashboardTabs({ routes, connections, components }: { rou
                       }}
                     >
                       {screens.map(route => (
-                        <FlowScreenCard key={route.id} route={route} />
+                        <FlowScreenCard key={route.id} route={route} onClick={() => handleScreenClick(route)} />
                       ))}
                     </div>
 
-                    {/* Right gradient fade with arrow button */}
+                    {/* Right gradient fade with arrow button - only show if overflow exists */}
                     {showScrollButton && (
                       <div
                         className="absolute right-0 top-0 bottom-2 flex items-center justify-end pr-4 pointer-events-none"
@@ -631,9 +800,38 @@ export default function DashboardTabs({ routes, connections, components }: { rou
                   </div>
 
                   {/* Flow header below the cards */}
-                  <div className="mt-4">
-                    <h3 className="text-lg font-medium text-gray-900">{flowName}</h3>
-                    <p className="text-sm text-gray-500">{screens.length} {screens.length === 1 ? 'screen' : 'screens'}</p>
+                  <div className="mt-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900">{flowName}</h3>
+                      <p className="text-sm text-gray-500">{screens.length} {screens.length === 1 ? 'screen' : 'screens'}</p>
+                    </div>
+
+                    {/* Copy to Figma button - appears on hover */}
+                    {isHovering && (
+                      <button
+                        onClick={handleCopyToFigma}
+                        disabled={isCopying}
+                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isCopying ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M4.66667 8C4.66667 6.89543 5.5621 6 6.66667 6H8V10H6.66667C5.5621 10 4.66667 9.10457 4.66667 8Z" fill="#1ABCFE"/>
+                              <path d="M8 1.33333H6.66667C5.5621 1.33333 4.66667 2.22876 4.66667 3.33333C4.66667 4.43791 5.5621 5.33333 6.66667 5.33333H8V1.33333Z" fill="#0ACF83"/>
+                              <path d="M8 6.66667H9.33333C10.4379 6.66667 11.3333 7.5621 11.3333 8.66667C11.3333 9.77124 10.4379 10.6667 9.33333 10.6667C8.22876 10.6667 7.33333 9.77124 7.33333 8.66667V8H8V6.66667Z" fill="#A259FF"/>
+                              <path d="M4.66667 11.3333C4.66667 10.2288 5.5621 9.33333 6.66667 9.33333H8V13.3333H6.66667C5.5621 13.3333 4.66667 12.4379 4.66667 11.3333Z" fill="#F24E1E"/>
+                              <path d="M8 1.33333H9.33333C10.4379 1.33333 11.3333 2.22876 11.3333 3.33333C11.3333 4.43791 10.4379 5.33333 9.33333 5.33333H8V1.33333Z" fill="#FF7262"/>
+                            </svg>
+                            Download for Figma
+                          </>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -699,6 +897,13 @@ export default function DashboardTabs({ routes, connections, components }: { rou
           )}
         </div>
       )}
+
+      <ScreenDetailModal
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        route={selectedRoute}
+        allRoutes={filteredRoutes}
+      />
     </>
   );
 }
@@ -771,12 +976,15 @@ function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowNam
   );
 }
 
-function FlowScreenCard({ route }: { route: Route }) {
+function FlowScreenCard({ route, onClick }: { route: Route; onClick: () => void }) {
   const latestCapture = route.captures?.[0];
 
   return (
-    <div className="flex-shrink-0 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-         style={{ width: '380px', height: '232px' }}>
+    <div
+      onClick={onClick}
+      className="flex-shrink-0 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+      style={{ width: '380px', height: '232px' }}
+    >
       <div className="relative w-full h-full bg-gray-200">
         {latestCapture?.screenshot_url ? (
           <img
@@ -785,8 +993,8 @@ function FlowScreenCard({ route }: { route: Route }) {
             className="w-full h-full object-cover object-top"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-400">
-            No capture yet
+          <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
+            No screenshot
           </div>
         )}
       </div>

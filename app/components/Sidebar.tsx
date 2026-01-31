@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { Home, Bell, Settings, HelpCircle, ChevronLeft, ChevronRight, Activity, Layout, Grid } from 'lucide-react';
+import { Home, Bell, Settings, HelpCircle, ChevronLeft, ChevronRight, Activity, Layout, Grid, LogOut } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from './AuthProvider';
 
 export default function Sidebar() {
+  const { user, logout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
@@ -101,14 +103,26 @@ export default function Sidebar() {
           {isCollapsed && <HelpCircle size={18} />}
           {!isCollapsed && 'Support'}
         </Link>
+        <button
+          onClick={logout}
+          className={`flex items-center gap-3 px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-white w-full ${isCollapsed ? 'justify-center' : ''}`}
+          title={isCollapsed ? 'Logout' : ''}
+        >
+          {isCollapsed && <LogOut size={18} />}
+          {!isCollapsed && 'Logout'}
+        </button>
 
         {/* User Profile */}
         <div className={`flex items-center gap-3 px-3 py-3 mt-4 border-t border-gray-200 pt-4 ${isCollapsed ? 'justify-center' : ''}`}>
-          <div className="w-9 h-9 bg-gray-300 rounded-full"></div>
-          {!isCollapsed && (
-            <div>
-              <p className="text-sm font-medium text-gray-900">Olivia Rhye</p>
-              <p className="text-xs text-gray-500">olivia@produ...</p>
+          <div className="w-9 h-9 bg-gray-300 rounded-full flex items-center justify-center">
+            <span className="text-sm font-medium text-gray-600">
+              {user?.email?.charAt(0).toUpperCase() || 'U'}
+            </span>
+          </div>
+          {!isCollapsed && user && (
+            <div className="overflow-hidden">
+              <p className="text-sm font-medium text-gray-900 truncate">{user.email}</p>
+              <p className="text-xs text-gray-500">Account</p>
             </div>
           )}
         </div>

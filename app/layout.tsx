@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Sidebar from "./components/Sidebar";
+import { AuthProvider } from "./components/AuthProvider";
+import AuthGuard from "./components/AuthGuard";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -21,12 +22,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} font-sans antialiased`} style={{ backgroundColor: '#F2F2F2' }}>
-        <div className="flex h-screen" style={{ backgroundColor: '#F2F2F2' }}>
-          <Sidebar />
-          <main className="flex-1 overflow-auto">
+        <AuthProvider>
+          <AuthGuard>
             {children}
-          </main>
-        </div>
+          </AuthGuard>
+        </AuthProvider>
       </body>
     </html>
   );

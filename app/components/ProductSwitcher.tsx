@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
+import { Trash2 } from 'lucide-react';
 
 type Product = {
   id: string;
@@ -64,6 +65,30 @@ export default function ProductSwitcher({ products, activeProductId }: { product
     router.push(`?product=${productId}`);
   }
 
+  async function handleDeleteProduct(productId: string, productName: string, e: React.MouseEvent) {
+    e.stopPropagation(); // Prevent dropdown item click
+
+    if (!confirm(`Are you sure you want to delete "${productName}"? This will permanently delete all screens, flows, components, and captures.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/products/${productId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete product');
+      }
+
+      // Refresh the page to update product list
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      alert('Failed to delete product. Please try again.');
+    }
+  }
+
   return (
     <div className="flex items-center gap-3">
       {/* Logo box with white background */}
@@ -107,18 +132,29 @@ export default function ProductSwitcher({ products, activeProductId }: { product
 
         {/* Custom dropdown */}
         {hasMultipleProducts && isOpen && (
-          <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+          <div className="absolute top-full left-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
             {products.map(product => (
-              <button
+              <div
                 key={product.id}
-                onClick={() => handleProductSelect(product.id)}
-                className={`w-full text-left px-4 py-2.5 text-xs hover:bg-gray-50 transition-colors first:rounded-t-lg last:rounded-b-lg flex items-center justify-between ${
+                className={`group w-full text-left px-4 py-2.5 text-xs hover:bg-gray-50 transition-colors first:rounded-t-lg last:rounded-b-lg flex items-center justify-between ${
                   product.id === activeProduct?.id ? 'bg-gray-50' : ''
                 }`}
               >
-                <span className="text-gray-900 font-medium">{product.name}</span>
-                {getAuthBadge(product.auth_state)}
-              </button>
+                <button
+                  onClick={() => handleProductSelect(product.id)}
+                  className="flex items-center gap-2 flex-1"
+                >
+                  <span className="text-gray-900 font-medium">{product.name}</span>
+                  {getAuthBadge(product.auth_state)}
+                </button>
+                <button
+                  onClick={(e) => handleDeleteProduct(product.id, product.name, e)}
+                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                  title="Delete product"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             ))}
           </div>
         )}
