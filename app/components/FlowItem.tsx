@@ -41,10 +41,8 @@ export default function FlowItem({ flow, isActive, onClick, disabled }: FlowItem
   };
 
   const getLabel = () => {
-    if (flow.status === 'recording') {
-      return <span className="text-xs text-gray-500 ml-auto">{flow.screenCount} screen{flow.screenCount !== 1 ? 's' : ''}</span>;
-    }
-    if (flow.status === 'completed') {
+    // Show screen count for any flow that has screens
+    if (flow.screenCount > 0) {
       return <span className="text-xs text-gray-500 ml-auto">{flow.screenCount} screen{flow.screenCount !== 1 ? 's' : ''}</span>;
     }
     return null;
@@ -53,15 +51,15 @@ export default function FlowItem({ flow, isActive, onClick, disabled }: FlowItem
   return (
     <button
       onClick={onClick}
-      disabled={disabled || flow.status === 'completed'}
+      disabled={disabled}
       className={`
         w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors
         ${isActive ? 'bg-gray-100' : 'hover:bg-gray-50'}
-        ${disabled || flow.status === 'completed' ? 'cursor-default' : 'cursor-pointer'}
+        ${disabled ? 'cursor-default opacity-50' : 'cursor-pointer'}
       `}
     >
       {getIcon()}
-      <span className={`text-sm ${flow.status === 'completed' ? 'text-gray-500' : 'text-gray-900'} ${isActive ? 'font-medium' : ''}`}>
+      <span className={`text-sm text-gray-900 ${isActive ? 'font-medium' : ''}`}>
         {flow.name}
       </span>
       {getLabel()}
