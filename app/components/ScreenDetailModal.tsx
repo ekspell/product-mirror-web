@@ -14,8 +14,8 @@ type Route = {
   id: string;
   name: string;
   path: string;
-  flow_name: string;
-  captures: Capture[];
+  flow_name?: string | null;
+  captures: Capture[] | null;
 };
 
 type Annotation = {

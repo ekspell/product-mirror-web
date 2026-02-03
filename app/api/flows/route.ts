@@ -12,11 +12,12 @@ export async function GET(request: Request) {
       }, { status: 400 });
     }
 
-    // Fetch all flows for this product
+    // Fetch flows for this product that have screens (step_count > 0)
     const { data: flows, error } = await supabase
       .from('flows')
-      .select('id, name, parent_flow_id, level, order_index')
+      .select('id, name, parent_flow_id, level, order_index, step_count')
       .eq('product_id', productId)
+      .gt('step_count', 0)
       .order('level', { ascending: true })
       .order('order_index', { ascending: true });
 

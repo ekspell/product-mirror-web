@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import SweepSettingsModal from './SweepSettingsModal';
 import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
@@ -22,6 +22,99 @@ export default function RunSweepButton({ flows, productId }: RunSweepButtonProps
   const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [progress, setProgress] = useState('');
+  const [currentSweepId, setCurrentSweepId] = useState<string | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const stopPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  };
+
+  const pollSweepStatus = async (sweepId: string) => {
+    // Clear any existing interval
+    stopPolling();
+
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/sweep/status?sweepId=${sweepId}`);
+        const data = await response.json();
+
+        if (!data.success || !data.sweep) {
+          stopPolling();
+          setError('Failed to fetch sweep status');
+          setIsRunning(false);
+          return;
+        }
+
+        const sweep = data.sweep;
+
+        // Update progress message
+        if (sweep.current_step && sweep.progress_message) {
+          setProgress(`${sweep.current_step}: ${sweep.progress_message}`);
+        }
+
+        // Check if sweep is complete or failed
+        if (sweep.status === 'completed') {
+          stopPolling();
+          setProgress('');
+
+          // Build completion message with metrics
+          const metrics = [];
+          if (sweep.pages_crawled) metrics.push(`${sweep.pages_crawled} screens`);
+          if (sweep.tasks_discovered) metrics.push(`${sweep.tasks_discovered} tasks`);
+          if (sweep.flows_categorized) metrics.push(`${sweep.flows_categorized} flows`);
+          if (sweep.changes_detected) metrics.push(`${sweep.changes_detected} changes`);
+          if (sweep.components_extracted) metrics.push(`${sweep.components_extracted} components`);
+
+          const metricsText = metrics.length > 0 ? ` (${metrics.join(', ')})` : '';
+          setStatus(`Sweep complete${metricsText}! Refreshing...`);
+
+          setTimeout(() => window.location.reload(), 2000);
+        } else if (sweep.status === 'failed') {
+          stopPolling();
+          setProgress('');
+          setError(sweep.error_message || 'Sweep failed. Please try again.');
+          setIsRunning(false);
+        }
+      } catch (error: any) {
+        stopPolling();
+        setProgress('');
+        setError(`Failed to check sweep status: ${error.message}`);
+        setIsRunning(false);
+      }
+    }, 3000); // Poll every 3 seconds
+  };
+
+  // Check for running sweeps on mount or when productId changes
+  useEffect(() => {
+    if (!productId) return;
+
+    async function checkForRunningSweep() {
+      try {
+        const response = await fetch(`/api/sweep/status?productId=${productId}`);
+        const data = await response.json();
+
+        if (data.success && data.sweep && data.sweep.status === 'running') {
+          // Found a running sweep - resume polling
+          setCurrentSweepId(data.sweep.id);
+          setIsRunning(true);
+          setProgress(`Resuming: ${data.sweep.current_step || 'In progress'}...`);
+          pollSweepStatus(data.sweep.id);
+        }
+      } catch (error) {
+        // Silently fail - no running sweep to resume
+      }
+    }
+
+    checkForRunningSweep();
+
+    // Cleanup on unmount
+    return () => {
+      stopPolling();
+    };
+  }, [productId]);
 
   const handleStartSweep = async (settings: SweepSettings) => {
     setIsModalOpen(false);
@@ -39,8 +132,6 @@ export default function RunSweepButton({ flows, productId }: RunSweepButtonProps
     console.log('Sweep settings:', settings);
 
     try {
-      setProgress('Crawling screens...');
-
       const response = await fetch('/api/sweep', {
         method: 'POST',
         headers: {
@@ -51,13 +142,14 @@ export default function RunSweepButton({ flows, productId }: RunSweepButtonProps
 
       const data = await response.json();
 
-      if (data.success) {
-        setProgress('');
-        setStatus('Sweep complete! Refreshing...');
-        setTimeout(() => window.location.reload(), 1500);
+      if (data.success && data.sweepId) {
+        setCurrentSweepId(data.sweepId);
+        setProgress('Sweep started. Initializing...');
+        // Start polling for status
+        pollSweepStatus(data.sweepId);
       } else {
         setProgress('');
-        setError(data.error || 'Sweep failed. Please try again.');
+        setError(data.error || 'Failed to start sweep. Please try again.');
         setIsRunning(false);
       }
     } catch (error: any) {

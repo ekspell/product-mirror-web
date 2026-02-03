@@ -14,9 +14,6 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded, userI
   const [formData, setFormData] = useState({
     name: '',
     stagingUrl: '',
-    loginEmail: '',
-    loginPassword: '',
-    authState: 'public' as 'authenticated' | 'public'
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -42,9 +39,6 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded, userI
         setFormData({
           name: '',
           stagingUrl: '',
-          loginEmail: '',
-          loginPassword: '',
-          authState: 'public'
         });
         onClose();
         onProductAdded();
@@ -56,16 +50,6 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded, userI
     }
 
     setLoading(false);
-  };
-
-  const handleAuthStateChange = (state: 'authenticated' | 'public') => {
-    setFormData(prev => ({
-      ...prev,
-      authState: state,
-      // Clear login fields if switching to public
-      loginEmail: state === 'public' ? '' : prev.loginEmail,
-      loginPassword: state === 'public' ? '' : prev.loginPassword
-    }));
   };
 
   return (
@@ -123,83 +107,6 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded, userI
               placeholder="https://example.com"
             />
           </div>
-
-          {/* Auth State Toggle */}
-          <div>
-            <label className="block text-sm font-medium text-gray-900 mb-3">
-              Authentication required?
-            </label>
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="authState"
-                  checked={formData.authState === 'public'}
-                  onChange={() => handleAuthStateChange('public')}
-                  className="w-4 h-4 text-gray-900"
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-900">Public</div>
-                  <div className="text-xs text-gray-500">No login required to access</div>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="authState"
-                  checked={formData.authState === 'authenticated'}
-                  onChange={() => handleAuthStateChange('authenticated')}
-                  className="w-4 h-4 text-gray-900"
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-900">Authenticated</div>
-                  <div className="text-xs text-gray-500">Login credentials required</div>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          {/* Login Credentials (conditional) */}
-          {formData.authState === 'authenticated' && (
-            <div className="pt-3 border-t border-gray-200">
-              <p className="text-sm text-gray-600 mb-4">
-                Provide login credentials for the crawler to authenticate
-              </p>
-
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="loginEmail" className="block text-sm font-medium text-gray-900 mb-2">
-                    Login email
-                  </label>
-                  <input
-                    id="loginEmail"
-                    type="email"
-                    value={formData.loginEmail}
-                    onChange={(e) => setFormData(prev => ({ ...prev, loginEmail: e.target.value }))}
-                    required={formData.authState === 'authenticated'}
-                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                    placeholder="user@example.com"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="loginPassword" className="block text-sm font-medium text-gray-900 mb-2">
-                    Login password
-                  </label>
-                  <input
-                    id="loginPassword"
-                    type="password"
-                    value={formData.loginPassword}
-                    onChange={(e) => setFormData(prev => ({ ...prev, loginPassword: e.target.value }))}
-                    required={formData.authState === 'authenticated'}
-                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-900 focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                    placeholder="••••••••"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Error Message */}
           {error && (

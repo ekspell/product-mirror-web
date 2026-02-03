@@ -3,19 +3,12 @@ import { supabase } from '@/app/supabase';
 
 export async function POST(request: Request) {
   try {
-    const { name, stagingUrl, loginEmail, loginPassword, authState, userId } = await request.json();
+    const { name, stagingUrl, userId } = await request.json();
 
     // Validation
-    if (!name || !stagingUrl || !authState || !userId) {
+    if (!name || !stagingUrl || !userId) {
       return NextResponse.json(
         { error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-
-    if (authState === 'authenticated' && (!loginEmail || !loginPassword)) {
-      return NextResponse.json(
-        { error: 'Login credentials required for authenticated products' },
         { status: 400 }
       );
     }
@@ -61,9 +54,6 @@ export async function POST(request: Request) {
         team_id: teamId,
         name,
         staging_url: stagingUrl,
-        auth_state: authState,
-        login_email: authState === 'authenticated' ? loginEmail : null,
-        login_password: authState === 'authenticated' ? loginPassword : null
       })
       .select()
       .single();

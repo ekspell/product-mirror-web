@@ -76,22 +76,7 @@ export default function Home() {
       // Determine which product to show
       const displayProductId = activeProductId || (productsData.length > 0 ? productsData[0].id : null);
 
-      // Find the latest completed recording session for this product
-      let latestSessionId: string | null = null;
-      if (displayProductId) {
-        const { data: latestSession } = await supabase
-          .from('recording_sessions')
-          .select('id')
-          .eq('product_id', displayProductId)
-          .eq('status', 'completed')
-          .order('started_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        latestSessionId = latestSession?.id || null;
-      }
-
-      // Routes query — filter by product and latest session
+      // Routes query — filter by product, only include routes with a flow_id
       let routesQuery = supabase
         .from('routes')
         .select(`
@@ -99,18 +84,16 @@ export default function Home() {
           name,
           path,
           flow_name,
+          flow_id,
           product_id,
           products (name),
           captures (screenshot_url, captured_at, has_changes, change_summary)
         `)
+        .not('flow_id', 'is', null)
         .order('captured_at', { referencedTable: 'captures', ascending: false });
 
       if (displayProductId) {
         routesQuery = routesQuery.eq('product_id', displayProductId);
-      }
-
-      if (latestSessionId) {
-        routesQuery = routesQuery.eq('session_id', latestSessionId);
       }
 
       const { data: routesData } = await routesQuery;

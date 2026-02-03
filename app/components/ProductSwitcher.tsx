@@ -2,7 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Settings } from 'lucide-react';
+import EditProductModal from './EditProductModal';
 
 type Product = {
   id: string;
@@ -39,6 +40,8 @@ function getAuthBadge(authState: 'authenticated' | 'public' | null | undefined) 
 export default function ProductSwitcher({ products, activeProductId }: { products: Product[]; activeProductId: string | null }) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Default to first product if no active product
@@ -65,6 +68,13 @@ export default function ProductSwitcher({ products, activeProductId }: { product
     router.push(`?product=${productId}`);
   }
 
+  function handleEditProduct(product: Product, e: React.MouseEvent) {
+    e.stopPropagation(); // Prevent dropdown item click
+    setProductToEdit(product);
+    setIsEditModalOpen(true);
+    setIsOpen(false);
+  }
+
   async function handleDeleteProduct(productId: string, productName: string, e: React.MouseEvent) {
     e.stopPropagation(); // Prevent dropdown item click
 
@@ -89,6 +99,11 @@ export default function ProductSwitcher({ products, activeProductId }: { product
     }
   }
 
+  function handleProductUpdated() {
+    // Refresh the page to show updated product
+    window.location.reload();
+  }
+
   return (
     <div className="flex items-center gap-3">
       {/* Logo box with white background */}
@@ -109,7 +124,7 @@ export default function ProductSwitcher({ products, activeProductId }: { product
         )}
       </div>
 
-      <div className="relative" ref={dropdownRef}>
+      <div className="relative flex items-center gap-2" ref={dropdownRef}>
         <button
           onClick={() => hasMultipleProducts && setIsOpen(!isOpen)}
           className={`flex items-center gap-2 ${hasMultipleProducts ? 'cursor-pointer' : 'cursor-default'}`}
@@ -130,6 +145,17 @@ export default function ProductSwitcher({ products, activeProductId }: { product
           )}
         </button>
 
+        {/* Edit button (visible for single product) */}
+        {!hasMultipleProducts && activeProduct && (
+          <button
+            onClick={(e) => handleEditProduct(activeProduct, e)}
+            className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+            title="Edit product settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        )}
+
         {/* Custom dropdown */}
         {hasMultipleProducts && isOpen && (
           <div className="absolute top-full left-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
@@ -147,18 +173,34 @@ export default function ProductSwitcher({ products, activeProductId }: { product
                   <span className="text-gray-900 font-medium">{product.name}</span>
                   {getAuthBadge(product.auth_state)}
                 </button>
-                <button
-                  onClick={(e) => handleDeleteProduct(product.id, product.name, e)}
-                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                  title="Delete product"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => handleEditProduct(product, e)}
+                    className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                    title="Edit product"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteProduct(product.id, product.name, e)}
+                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    title="Delete product"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <EditProductModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        onProductUpdated={handleProductUpdated}
+        product={productToEdit}
+      />
     </div>
   );
 }
