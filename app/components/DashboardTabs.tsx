@@ -233,7 +233,7 @@ function HierarchicalFlowItem({ flow, depth, expandedFlows, setExpandedFlows, vi
 }
 
 export default function DashboardTabs({ routes, connections, components, productId }: { routes: Route[] | null; connections: Connection[] | null; components: Component[] | null; productId?: string | null }) {
-  const [activeTab, setActiveTab] = useState('changes');
+  const [activeTab, setActiveTab] = useState('screens');
   const [visibleFlow, setVisibleFlow] = useState<string | null>(null);
   const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
   const [allExpanded, setAllExpanded] = useState(false);
@@ -329,6 +329,31 @@ export default function DashboardTabs({ routes, connections, components, product
     } catch (error) {
       console.error('Error deleting component:', error);
       alert('Failed to delete component. Please try again.');
+    }
+  };
+
+  // Delete route/screen handler
+  const handleDeleteRoute = async (routeId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click event
+
+    if (!confirm('Are you sure you want to delete this screen?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/routes/${routeId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete screen');
+      }
+
+      // Reload page to refresh data
+      window.location.reload();
+    } catch (error) {
+      console.error('Error deleting screen:', error);
+      alert('Failed to delete screen. Please try again.');
     }
   };
 
@@ -487,11 +512,13 @@ export default function DashboardTabs({ routes, connections, components, product
 
             <div className="flex items-center gap-6 pl-6">
               <button
-                onClick={() => setActiveTab('changes')}
-                className={`text-base pb-1 ${activeTab === 'changes' ? 'font-medium text-gray-900 border-b-2 border-gray-900' : 'text-gray-500'}`}
+                onClick={() => setActiveTab('screens')}
+                className={`text-base pb-1 ${activeTab === 'screens' ? 'font-medium text-gray-900 border-b-2 border-gray-900' : 'text-gray-500'}`}
               >
-                Changes
-                <span className="ml-2 bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">10</span>
+                Screens
+                {filteredRoutes.length > 0 && (
+                  <span className="ml-2 bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">{filteredRoutes.length}</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveTab('flows')}
@@ -529,71 +556,72 @@ export default function DashboardTabs({ routes, connections, components, product
         </div>
       </div>
 
-      {activeTab === 'changes' && (
+      {activeTab === 'screens' && (
         <div className="p-8">
-          {(() => {
-            const routesWithChanges = filteredRoutes.filter(route => {
-              const latestCapture = route.captures?.[0];
-              return latestCapture?.has_changes === true;
-            });
+          {filteredRoutes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-gray-500 mb-2">
+                {searchQuery ? `No screens found for "${searchQuery}"` : 'No screens recorded yet'}
+              </p>
+              {searchQuery ? (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                >
+                  Clear search
+                </button>
+              ) : (
+                <p className="text-sm text-gray-400 mt-1">
+                  Start a recording session to capture screens
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-6">
+              {filteredRoutes.map(route => {
+                const latestCapture = route.captures?.[0];
 
-            if (routesWithChanges.length === 0) {
-              return (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <p className="text-gray-500 mb-2">
-                    {searchQuery ? `No changes found for "${searchQuery}"` : 'No changes detected yet'}
-                  </p>
-                  {searchQuery ? (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="text-sm text-blue-600 hover:text-blue-700"
-                    >
-                      Clear search
-                    </button>
-                  ) : (
-                    <p className="text-sm text-gray-400 mt-1">
-                      Run another sweep to detect changes
-                    </p>
-                  )}
-                </div>
-              );
-            }
-
-            return (
-              <div className="grid grid-cols-2 gap-6">
-                {routesWithChanges.map(route => {
-                  const latestCapture = route.captures?.[0];
-                  const changeSummary = latestCapture?.change_summary || 'Changes detected';
-
-                  return (
+                return (
+                  <div
+                    key={route.id}
+                    className="rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative"
+                  >
                     <div
-                      key={route.id}
                       onClick={() => handleScreenClick(route)}
-                      className="rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                      className="relative aspect-video bg-gray-200"
                     >
-                      <div className="relative aspect-video bg-gray-200">
-                        {latestCapture?.screenshot_url ? (
-                          <img
-                            src={latestCapture.screenshot_url}
-                            alt={route.name || ''}
-                            className="w-full h-full object-cover object-top"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-400">
-                            No screenshot
-                          </div>
-                        )}
-
-                        <div className="absolute top-3 left-3 bg-red-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2">
-                          {changeSummary}
+                      {latestCapture?.screenshot_url ? (
+                        <img
+                          src={latestCapture.screenshot_url}
+                          alt={route.name || ''}
+                          className="w-full h-full object-cover object-top"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                          No screenshot
                         </div>
-                      </div>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
+                    <div className="p-3 flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-900 truncate">{route.name || 'Untitled'}</p>
+                        {route.flow_name && (
+                          <p className="text-xs text-gray-500 truncate">{route.flow_name}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteRoute(route.id, e)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        title="Delete screen"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -877,7 +905,7 @@ export default function DashboardTabs({ routes, connections, components, product
                       }}
                     >
                       {screens.map(route => (
-                        <FlowScreenCard key={route.id} route={route} onClick={() => handleScreenClick(route)} />
+                        <FlowScreenCard key={route.id} route={route} onClick={() => handleScreenClick(route)} onDelete={(e) => handleDeleteRoute(route.id, e)} />
                       ))}
                     </div>
 
@@ -1077,16 +1105,15 @@ function SidebarTreeNode({ node, depth, isLast, visibleFlow, onScrollTo, flowNam
   );
 }
 
-function FlowScreenCard({ route, onClick }: { route: Route; onClick: () => void }) {
+function FlowScreenCard({ route, onClick, onDelete }: { route: Route; onClick: () => void; onDelete: (e: React.MouseEvent) => void }) {
   const latestCapture = route.captures?.[0];
 
   return (
     <div
-      onClick={onClick}
-      className="flex-shrink-0 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+      className="flex-shrink-0 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative"
       style={{ width: '380px', height: '232px' }}
     >
-      <div className="relative w-full h-full bg-gray-200">
+      <div onClick={onClick} className="relative w-full h-full bg-gray-200">
         {latestCapture?.screenshot_url ? (
           <img
             src={latestCapture.screenshot_url}
@@ -1099,6 +1126,13 @@ function FlowScreenCard({ route, onClick }: { route: Route; onClick: () => void 
           </div>
         )}
       </div>
+      <button
+        onClick={onDelete}
+        className="absolute top-2 right-2 p-2 bg-white text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100 shadow-sm"
+        title="Delete screen"
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
     </div>
   );
 }
