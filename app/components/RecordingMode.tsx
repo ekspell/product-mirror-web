@@ -167,19 +167,19 @@ export default function RecordingMode({ sessionId, productName, onEndRecording }
   const flows = status?.flows || [];
 
   return (
-    <div className="p-8">
+    <div className="p-8 font-inter">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Recording Session</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {productName} {elapsed ? `\u00B7 Started ${elapsed}` : ''}
+          <p className="text-base text-gray-500 mt-1">
+            {productName} {elapsed ? `· Started ${elapsed}` : ''}
           </p>
         </div>
         <button
           onClick={handleEndRecording}
           disabled={loading === 'end'}
-          className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 transition-colors"
+          className="px-4 py-2 text-base font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 transition-colors"
         >
           {loading === 'end' ? 'Ending...' : 'End Recording'}
         </button>
@@ -188,30 +188,30 @@ export default function RecordingMode({ sessionId, productName, onEndRecording }
       {/* Error */}
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-800">{error}</p>
+          <p className="text-base text-red-800">{error}</p>
         </div>
       )}
 
       {/* Stats bar */}
-      <div className="flex items-center gap-6 mb-6 pb-6 border-b border-gray-200">
+      <div className="flex items-center gap-8 mb-6 pb-6 border-b border-gray-200">
         <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Total screens</p>
+          <p className="text-sm text-gray-500 uppercase tracking-wide">Total screens</p>
           <p className="text-2xl font-semibold text-gray-900">{status?.totalScreens || 0}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Flows recorded</p>
+          <p className="text-sm text-gray-500 uppercase tracking-wide">Flows recorded</p>
           <p className="text-2xl font-semibold text-gray-900">
             {flows.filter(f => f.status === 'completed').length}
           </p>
         </div>
         {status?.browserConnected === false && (
-          <div className="ml-auto flex items-center gap-2 text-sm text-amber-600">
+          <div className="ml-auto flex items-center gap-2 text-base text-amber-600">
             <span className="w-2 h-2 rounded-full bg-amber-500" />
             Browser disconnected
           </div>
         )}
         {status?.browserConnected && (
-          <div className="ml-auto flex items-center gap-2 text-sm text-green-600">
+          <div className="ml-auto flex items-center gap-2 text-base text-green-600">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             Browser connected
           </div>
@@ -220,7 +220,7 @@ export default function RecordingMode({ sessionId, productName, onEndRecording }
 
       {/* Flow Checklist */}
       <div className="mb-6">
-        <h2 className="text-sm font-medium text-gray-900 mb-3">Your Flows</h2>
+        <h2 className="text-base font-medium text-gray-900 mb-3">Your Flows</h2>
         <FlowChecklist
           flows={flows}
           activeFlowId={activeFlowId}
@@ -235,18 +235,18 @@ export default function RecordingMode({ sessionId, productName, onEndRecording }
           <button
             onClick={handleEndFlow}
             disabled={loading === 'flow-end'}
-            className="w-full px-4 py-3 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:bg-gray-400 transition-colors"
+            className="w-full px-4 py-3 text-base font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:bg-gray-400 transition-colors"
           >
             {loading === 'flow-end' ? 'Finishing...' : 'Done with current flow'}
           </button>
         </div>
       )}
 
-      {/* Prompt to pick a flow */}
-      {!activeFlowId && flows.length > 0 && flows.some(f => f.status === 'pending') && (
+      {/* Prompt to add a flow */}
+      {!activeFlowId && flows.length === 0 && (
         <div className="pt-4 border-t border-gray-200">
-          <p className="text-sm text-gray-500 text-center">
-            Click a flow above to start recording it
+          <p className="text-base text-gray-500 text-center">
+            Add a flow to start recording
           </p>
         </div>
       )}
