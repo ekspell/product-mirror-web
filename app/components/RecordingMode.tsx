@@ -199,9 +199,9 @@ export default function RecordingMode({ sessionId, productName, onEndRecording }
           <p className="text-2xl font-semibold text-gray-900">{status?.totalScreens || 0}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Flows completed</p>
+          <p className="text-xs text-gray-500 uppercase tracking-wide">Flows recorded</p>
           <p className="text-2xl font-semibold text-gray-900">
-            {flows.filter(f => f.status === 'completed').length} / {flows.length}
+            {flows.filter(f => f.status === 'completed').length}
           </p>
         </div>
         {status?.browserConnected === false && (
