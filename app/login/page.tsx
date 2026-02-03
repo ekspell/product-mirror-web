@@ -1,19 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { Mail, ArrowRight, Info } from 'lucide-react';
+import { Mail, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [magicLink, setMagicLink] = useState('');
+  const [devLink, setDevLink] = useState('');
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setMessage('');
-    setMagicLink('');
+    setError('');
+    setDevLink('');
 
     try {
       const response = await fetch('/api/auth/login', {
@@ -24,16 +24,13 @@ export default function LoginPage() {
 
       const data = await response.json();
 
-      if (data.success) {
-        setMessage(data.message);
-        if (data.magicLink) {
-          setMagicLink(data.magicLink);
-        }
+      if (data.success && data.magicLink) {
+        setDevLink(data.magicLink);
       } else {
-        setMessage(data.error || 'Failed to send magic link');
+        setError(data.error || 'Failed to generate login link');
       }
     } catch (error) {
-      setMessage('An error occurred. Please try again.');
+      setError('An error occurred. Please try again.');
     }
 
     setLoading(false);
@@ -81,48 +78,35 @@ export default function LoginPage() {
               className="w-full bg-gray-900 text-white py-2.5 rounded-lg font-medium hover:bg-gray-800 disabled:bg-gray-400 transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
-                'Sending...'
+                'Loading...'
               ) : (
                 <>
-                  Send magic link
+                  Continue
                   <ArrowRight size={18} />
                 </>
               )}
             </button>
           </form>
 
-          {/* Message */}
-          {message && (
-            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex gap-3">
-                <Info className="text-blue-600 flex-shrink-0 mt-0.5" size={20} />
-                <div className="text-sm text-blue-900">
-                  <p className="font-medium mb-3">Magic link sent. Check console for link (MVP mode)</p>
-                  <p className="font-medium mb-2">How to find your magic link:</p>
-                  <ol className="space-y-1 list-decimal list-inside mb-3">
-                    <li>Right click anywhere on the page</li>
-                    <li>Click "Inspect"</li>
-                    <li>Click the "Console" tab</li>
-                    <li>The magic URL link will be printed there</li>
-                  </ol>
-                  {magicLink && (
-                    <a
-                      href={magicLink}
-                      className="text-blue-600 hover:text-blue-800 underline font-medium"
-                    >
-                      Click here to login (Dev mode)
-                    </a>
-                  )}
-                </div>
-              </div>
+          {/* Error */}
+          {error && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-800">{error}</p>
+            </div>
+          )}
+
+          {/* Dev Login Link */}
+          {devLink && (
+            <div className="mt-4">
+              <a
+                href={devLink}
+                className="block w-full text-center bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+              >
+                Click to Login
+              </a>
             </div>
           )}
         </div>
-
-        {/* Info */}
-        <p className="text-center text-xs text-gray-500">
-          We'll send you a magic link to sign in without a password.
-        </p>
       </div>
     </div>
   );

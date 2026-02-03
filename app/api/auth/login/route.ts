@@ -78,17 +78,9 @@ export async function POST(request: Request) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const magicLink = `${baseUrl}/verify-magic-link?token=${token}`;
 
-    // MVP: Console log the magic link instead of sending email
-    console.log('\n=================================');
-    console.log('MAGIC LINK FOR:', normalizedEmail);
-    console.log(magicLink);
-    console.log('=================================\n');
-
     return NextResponse.json({
       success: true,
-      message: 'Magic link sent! Check console for link (MVP mode)',
-      // In production, don't return the link
-      magicLink: process.env.NODE_ENV === 'development' ? magicLink : undefined
+      magicLink
     });
 
   } catch (error: any) {

@@ -178,7 +178,7 @@ function HierarchicalFlowItem({ flow, depth, expandedFlows, setExpandedFlows, vi
 }) {
   const hasChildren = flow.children && flow.children.length > 0;
   const isExpanded = expandedFlows.includes(flow.id);
-  const isActive = visibleFlow === flow.name;
+  const isActive = visibleFlow?.toLowerCase() === flow.name?.toLowerCase();
 
   return (
     <div>
@@ -248,6 +248,8 @@ export default function DashboardTabs({ routes, connections, components, product
   const [flowHoverStates, setFlowHoverStates] = useState<Record<string, boolean>>({});
   const [flowCopyingStates, setFlowCopyingStates] = useState<Record<string, boolean>>({});
   const [hierarchicalFlows, setHierarchicalFlows] = useState<any[]>([]);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'screen' | 'flow' | 'component'; id: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const flowScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -308,54 +310,64 @@ export default function DashboardTabs({ routes, connections, components, product
   };
 
   // Delete component handler
-  const handleDeleteComponent = async (componentId: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click event
+  const handleDeleteComponent = (componentId: string, componentName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeleteConfirm({ type: 'component', id: componentId, name: componentName });
+  };
 
-    if (!confirm('Are you sure you want to delete this component? This will also delete all instances.')) {
-      return;
-    }
+  // Delete route/screen handler - shows confirmation modal
+  const handleDeleteRoute = (routeId: string, e: React.MouseEvent, routeName?: string) => {
+    e.stopPropagation();
+    setDeleteConfirm({ type: 'screen', id: routeId, name: routeName || 'this screen' });
+  };
 
+  // Delete flow handler - shows confirmation modal
+  const handleDeleteFlow = (flowId: string, flowName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeleteConfirm({ type: 'flow', id: flowId, name: flowName });
+  };
+
+  // Execute the actual deletion
+  const executeDelete = async () => {
+    if (!deleteConfirm) return;
+
+    setIsDeleting(true);
     try {
-      const response = await fetch(`/api/components/${componentId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete component');
+      if (deleteConfirm.type === 'component') {
+        const response = await fetch(`/api/components/${deleteConfirm.id}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) throw new Error('Failed to delete component');
+        setLocalComponents(prev => prev.filter(c => c.id !== deleteConfirm.id));
+        setDeleteConfirm(null);
+        setIsDeleting(false);
+        return;
+      } else if (deleteConfirm.type === 'screen') {
+        const response = await fetch(`/api/routes/${deleteConfirm.id}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) throw new Error('Failed to delete screen');
+        window.location.reload();
+      } else {
+        const response = await fetch(`/api/flows/${deleteConfirm.id}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) throw new Error('Failed to delete flow');
+        window.location.reload();
       }
-
-      // Update local state to remove the deleted component
-      setLocalComponents(prev => prev.filter(c => c.id !== componentId));
     } catch (error) {
-      console.error('Error deleting component:', error);
-      alert('Failed to delete component. Please try again.');
+      console.error('Error deleting:', error);
+      setIsDeleting(false);
+      setDeleteConfirm(null);
+      alert('Failed to delete. Please try again.');
     }
   };
 
-  // Delete route/screen handler
-  const handleDeleteRoute = async (routeId: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click event
-
-    if (!confirm('Are you sure you want to delete this screen?')) {
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/routes/${routeId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete screen');
-      }
-
-      // Reload page to refresh data
-      window.location.reload();
-    } catch (error) {
-      console.error('Error deleting screen:', error);
-      alert('Failed to delete screen. Please try again.');
-    }
-  };
+  // Create a map of flow name -> flow ID for delete functionality
+  const flowNameToId: Record<string, string> = {};
+  for (const flow of hierarchicalFlows) {
+    flowNameToId[flow.name] = flow.id;
+  }
 
   const hasConnections = Array.isArray(connections) && connections.length > 0;
   const flowTrees = hasConnections && filteredRoutes
@@ -450,14 +462,37 @@ export default function DashboardTabs({ routes, connections, components, product
   }, [activeTab, flowSections.map(s => s.key).join(',')]);
 
   const scrollToFlow = useCallback((flowName: string) => {
-    const el = sectionRefs.current[flowName];
+    let el = sectionRefs.current[flowName];
     const container = scrollContainerRef.current;
-    if (!el || !container) return;
+
+    // If exact match not found, try case-insensitive match
+    if (!el) {
+      const availableKeys = Object.keys(sectionRefs.current);
+      const matchingKey = availableKeys.find(
+        key => key.toLowerCase() === flowName.toLowerCase()
+      );
+      if (matchingKey) {
+        el = sectionRefs.current[matchingKey];
+      }
+    }
+
+    if (!el || !container) {
+      return;
+    }
 
     isScrollingTo.current = true;
     setVisibleFlow(flowName);
 
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Calculate position relative to scroll container
+    // Subtract 32px to account for container padding (py-8 = 32px)
+    const containerRect = container.getBoundingClientRect();
+    const elementRect = el.getBoundingClientRect();
+    const scrollTop = container.scrollTop + elementRect.top - containerRect.top - 32;
+
+    container.scrollTo({
+      top: Math.max(0, scrollTop),
+      behavior: 'smooth'
+    });
 
     // Re-enable scroll observation after animation
     setTimeout(() => {
@@ -516,15 +551,18 @@ export default function DashboardTabs({ routes, connections, components, product
                 className={`text-base pb-1 ${activeTab === 'screens' ? 'font-medium text-gray-900 border-b-2 border-gray-900' : 'text-gray-500'}`}
               >
                 Screens
-                {filteredRoutes.length > 0 && (
-                  <span className="ml-2 bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">{filteredRoutes.length}</span>
-                )}
               </button>
               <button
                 onClick={() => setActiveTab('flows')}
                 className={`text-base pb-1 ${activeTab === 'flows' ? 'font-medium text-gray-900 border-b-2 border-gray-900' : 'text-gray-500'}`}
               >
                 Flows
+              </button>
+              <button
+                onClick={() => setActiveTab('changes')}
+                className={`text-base pb-1 ${activeTab === 'changes' ? 'font-medium text-gray-900 border-b-2 border-gray-900' : 'text-gray-500'}`}
+              >
+                Changes
               </button>
               <button
                 onClick={() => setActiveTab('components')}
@@ -610,7 +648,7 @@ export default function DashboardTabs({ routes, connections, components, product
                         )}
                       </div>
                       <button
-                        onClick={(e) => handleDeleteRoute(route.id, e)}
+                        onClick={(e) => handleDeleteRoute(route.id, e, route.name || 'Untitled')}
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                         title="Delete screen"
                       >
@@ -647,20 +685,28 @@ export default function DashboardTabs({ routes, connections, components, product
             >
               {allExpanded ? 'Collapse all' : 'Expand all'}
             </button>
-            {hierarchicalFlows.length > 0 ? (
-              hierarchicalFlows.map(flow => (
-                <HierarchicalFlowItem
-                  key={flow.id}
-                  flow={flow}
-                  depth={0}
-                  expandedFlows={expandedFlows}
-                  setExpandedFlows={setExpandedFlows}
-                  visibleFlow={visibleFlow}
-                  scrollToFlow={scrollToFlow}
-                />
-              ))
-            ) : (
-              flowNames.map(flowName => {
+            {(() => {
+              // Filter hierarchicalFlows to only show flows that have content
+              const filteredHierarchicalFlows = hierarchicalFlows.filter(
+                flow => flowNames.some(fn => fn.toLowerCase() === flow.name?.toLowerCase())
+              );
+
+              if (filteredHierarchicalFlows.length > 0) {
+                return filteredHierarchicalFlows.map(flow => (
+                  <HierarchicalFlowItem
+                    key={flow.id}
+                    flow={flow}
+                    depth={0}
+                    expandedFlows={expandedFlows}
+                    setExpandedFlows={setExpandedFlows}
+                    visibleFlow={visibleFlow}
+                    scrollToFlow={scrollToFlow}
+                  />
+                ));
+              }
+
+              // Fallback to flowNames if no matching hierarchical flows
+              return flowNames.map(flowName => {
                 const screens = flowGroups[flowName];
                 const isActive = visibleFlow === flowName;
                 const isExpanded = expandedFlows.includes(flowName);
@@ -713,8 +759,8 @@ export default function DashboardTabs({ routes, connections, components, product
                     )}
                   </div>
                 );
-              })
-            )}
+              });
+            })()}
 
             {/* Resize handle */}
             <div
@@ -905,7 +951,7 @@ export default function DashboardTabs({ routes, connections, components, product
                       }}
                     >
                       {screens.map(route => (
-                        <FlowScreenCard key={route.id} route={route} onClick={() => handleScreenClick(route)} onDelete={(e) => handleDeleteRoute(route.id, e)} />
+                        <FlowScreenCard key={route.id} route={route} onClick={() => handleScreenClick(route)} onDelete={(e) => handleDeleteRoute(route.id, e, route.name || 'Untitled')} />
                       ))}
                     </div>
 
@@ -935,31 +981,42 @@ export default function DashboardTabs({ routes, connections, components, product
                       <p className="text-sm text-gray-500">{screens.length} {screens.length === 1 ? 'screen' : 'screens'}</p>
                     </div>
 
-                    {/* Copy to Figma button - appears on hover */}
+                    {/* Action buttons - appear on hover */}
                     {isHovering && (
-                      <button
-                        onClick={handleCopyToFigma}
-                        disabled={isCopying}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isCopying ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                            Downloading...
-                          </>
-                        ) : (
-                          <>
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              <path d="M4.66667 8C4.66667 6.89543 5.5621 6 6.66667 6H8V10H6.66667C5.5621 10 4.66667 9.10457 4.66667 8Z" fill="#1ABCFE"/>
-                              <path d="M8 1.33333H6.66667C5.5621 1.33333 4.66667 2.22876 4.66667 3.33333C4.66667 4.43791 5.5621 5.33333 6.66667 5.33333H8V1.33333Z" fill="#0ACF83"/>
-                              <path d="M8 6.66667H9.33333C10.4379 6.66667 11.3333 7.5621 11.3333 8.66667C11.3333 9.77124 10.4379 10.6667 9.33333 10.6667C8.22876 10.6667 7.33333 9.77124 7.33333 8.66667V8H8V6.66667Z" fill="#A259FF"/>
-                              <path d="M4.66667 11.3333C4.66667 10.2288 5.5621 9.33333 6.66667 9.33333H8V13.3333H6.66667C5.5621 13.3333 4.66667 12.4379 4.66667 11.3333Z" fill="#F24E1E"/>
-                              <path d="M8 1.33333H9.33333C10.4379 1.33333 11.3333 2.22876 11.3333 3.33333C11.3333 4.43791 10.4379 5.33333 9.33333 5.33333H8V1.33333Z" fill="#FF7262"/>
-                            </svg>
-                            Download for Figma
-                          </>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleCopyToFigma}
+                          disabled={isCopying}
+                          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isCopying ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                              Downloading...
+                            </>
+                          ) : (
+                            <>
+                              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M4.66667 8C4.66667 6.89543 5.5621 6 6.66667 6H8V10H6.66667C5.5621 10 4.66667 9.10457 4.66667 8Z" fill="#1ABCFE"/>
+                                <path d="M8 1.33333H6.66667C5.5621 1.33333 4.66667 2.22876 4.66667 3.33333C4.66667 4.43791 5.5621 5.33333 6.66667 5.33333H8V1.33333Z" fill="#0ACF83"/>
+                                <path d="M8 6.66667H9.33333C10.4379 6.66667 11.3333 7.5621 11.3333 8.66667C11.3333 9.77124 10.4379 10.6667 9.33333 10.6667C8.22876 10.6667 7.33333 9.77124 7.33333 8.66667V8H8V6.66667Z" fill="#A259FF"/>
+                                <path d="M4.66667 11.3333C4.66667 10.2288 5.5621 9.33333 6.66667 9.33333H8V13.3333H6.66667C5.5621 13.3333 4.66667 12.4379 4.66667 11.3333Z" fill="#F24E1E"/>
+                                <path d="M8 1.33333H9.33333C10.4379 1.33333 11.3333 2.22876 11.3333 3.33333C11.3333 4.43791 10.4379 5.33333 9.33333 5.33333H8V1.33333Z" fill="#FF7262"/>
+                              </svg>
+                              Download for Figma
+                            </>
+                          )}
+                        </button>
+                        {flowNameToId[flowName] && (
+                          <button
+                            onClick={(e) => handleDeleteFlow(flowNameToId[flowName], flowName, e)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete flow"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         )}
-                      </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -970,7 +1027,18 @@ export default function DashboardTabs({ routes, connections, components, product
         </div>
       )}
 
-     {activeTab === 'components' && (
+      {activeTab === 'changes' && (
+        <div className="p-8">
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-gray-500 mb-2">No changes detected yet</p>
+            <p className="text-sm text-gray-400 max-w-md">
+              Changes will appear here when screens are re-captured and differences are detected
+            </p>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'components' && (
         <div className="p-8">
           {filteredComponents.length > 0 ? (
             <>
@@ -989,7 +1057,7 @@ export default function DashboardTabs({ routes, connections, components, product
                           className="max-w-full max-h-full object-contain"
                         />
                         <button
-                          onClick={(e) => handleDeleteComponent(component.id, e)}
+                          onClick={(e) => handleDeleteComponent(component.id, component.name, e)}
                           className="absolute top-2 right-2 p-2 bg-white text-red-600 rounded-lg hover:shadow-md hover:bg-red-50 hover:text-red-700 transition-all"
                           title="Delete component"
                         >
@@ -1033,6 +1101,55 @@ export default function DashboardTabs({ routes, connections, components, product
         route={selectedRoute}
         allRoutes={filteredRoutes}
       />
+
+      {/* Delete confirmation modal */}
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          onClick={() => !isDeleting && setDeleteConfirm(null)}
+        >
+          {/* Overlay */}
+          <div className="absolute inset-0 bg-black/20" />
+
+          {/* Modal */}
+          <div
+            className="relative bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Delete {deleteConfirm.type}?
+            </h3>
+            <p className="text-gray-600 mb-6">
+              {deleteConfirm.type === 'flow'
+                ? `"${deleteConfirm.name}" and all its screens will be permanently deleted.`
+                : `"${deleteConfirm.name}" will be permanently deleted.`}
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

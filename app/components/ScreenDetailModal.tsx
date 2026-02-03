@@ -167,8 +167,11 @@ export default function ScreenDetailModal({ isOpen, onClose, route, allRoutes }:
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: '#1F1F1F' }}>
+      {/* Click overlay to close */}
+      <div className="absolute inset-0" onClick={onClose} />
+
       {/* Header */}
-      <div className="absolute top-8 left-8 flex items-center gap-3">
+      <div className="absolute top-8 left-8 flex items-center gap-3 z-10">
         <span className="text-sm text-gray-400">Found in</span>
         <span className="px-3 py-1 text-sm text-white rounded-md" style={{ backgroundColor: '#2A2A2A' }}>
           {currentRoute.flow_name || 'Uncategorized'}
@@ -176,7 +179,7 @@ export default function ScreenDetailModal({ isOpen, onClose, route, allRoutes }:
       </div>
 
       {/* Top right controls */}
-      <div className="absolute top-8 right-8 flex items-center gap-3">
+      <div className="absolute top-8 right-8 flex items-center gap-3 z-10">
         {/* Avatar stack placeholder */}
         <div className="flex items-center">
           <div className="w-8 h-8 rounded-full bg-gray-600 border-2 border-gray-800 flex items-center justify-center text-xs text-white">
@@ -201,7 +204,7 @@ export default function ScreenDetailModal({ isOpen, onClose, route, allRoutes }:
       </div>
 
       {/* Main content area */}
-      <div className="relative w-full h-full flex items-center justify-center px-32 py-32">
+      <div className="relative w-full h-full flex items-center justify-center px-32 py-32 z-10" onClick={(e) => e.stopPropagation()}>
         {/* Previous button */}
         {!showViewFlow && currentRouteIndex > 0 && (
           <button
@@ -488,7 +491,7 @@ export default function ScreenDetailModal({ isOpen, onClose, route, allRoutes }:
       </div>
 
       {/* Settings panel */}
-      <div className="absolute bottom-24 right-8 bg-white rounded-xl p-4 shadow-lg" style={{ width: '200px' }}>
+      <div className="absolute bottom-24 right-8 bg-white rounded-xl p-4 shadow-lg z-10" style={{ width: '200px' }}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-medium text-gray-900">View flow</span>
           <button
@@ -527,7 +530,7 @@ export default function ScreenDetailModal({ isOpen, onClose, route, allRoutes }:
       </div>
 
       {/* Bottom left controls */}
-      <div className="absolute bottom-8 left-8 flex items-center gap-3">
+      <div className="absolute bottom-8 left-8 flex items-center gap-3 z-10">
         <button className="px-6 py-2 bg-white text-gray-900 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors">
           Copy
         </button>
@@ -538,7 +541,7 @@ export default function ScreenDetailModal({ isOpen, onClose, route, allRoutes }:
       </div>
 
       {/* Bottom right mode toggle */}
-      <div className="absolute bottom-8 right-8 flex items-center gap-2 bg-gray-800 rounded-lg p-1">
+      <div className="absolute bottom-8 right-8 flex items-center gap-2 bg-gray-800 rounded-lg p-1 z-10">
         <button
           onClick={() => setViewMode('default')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${

@@ -3,10 +3,10 @@ import { supabase } from '@/app/supabase';
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const routeId = params.id;
+    const { id: routeId } = await params;
 
     if (!routeId) {
       return NextResponse.json({ error: 'Route ID is required' }, { status: 400 });
