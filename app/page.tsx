@@ -6,11 +6,11 @@ import { supabase } from './supabase';
 import { useAuth } from './components/AuthProvider';
 import Sidebar from './components/Sidebar';
 import DashboardTabs from './components/DashboardTabs';
-import RunSweepButton from './components/RunSweepButton';
 import ProductSwitcher from './components/ProductSwitcher';
 import AddProductModal from './components/AddProductModal';
 import EmptyProductsState from './components/EmptyProductsState';
-import { Plus } from 'lucide-react';
+import RecordingMode from './components/RecordingMode';
+import { Plus, Circle } from 'lucide-react';
 
 function timeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -37,6 +37,8 @@ export default function Home() {
   const [changesCount, setChangesCount] = useState(0);
   const [flows, setFlows] = useState<string[]>([]);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [recordingSessionId, setRecordingSessionId] = useState<string | null>(null);
+  const [recordingLoading, setRecordingLoading] = useState(false);
 
   const fetchData = async () => {
     if (!user) return;
@@ -74,7 +76,22 @@ export default function Home() {
       // Determine which product to show
       const displayProductId = activeProductId || (productsData.length > 0 ? productsData[0].id : null);
 
-      // Routes query — filter by product
+      // Find the latest completed recording session for this product
+      let latestSessionId: string | null = null;
+      if (displayProductId) {
+        const { data: latestSession } = await supabase
+          .from('recording_sessions')
+          .select('id')
+          .eq('product_id', displayProductId)
+          .eq('status', 'completed')
+          .order('started_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        latestSessionId = latestSession?.id || null;
+      }
+
+      // Routes query — filter by product and latest session
       let routesQuery = supabase
         .from('routes')
         .select(`
@@ -90,6 +107,10 @@ export default function Home() {
 
       if (displayProductId) {
         routesQuery = routesQuery.eq('product_id', displayProductId);
+      }
+
+      if (latestSessionId) {
+        routesQuery = routesQuery.eq('session_id', latestSessionId);
       }
 
       const { data: routesData } = await routesQuery;
@@ -185,6 +206,34 @@ export default function Home() {
     fetchData(); // Refresh products list
   };
 
+  const displayProductId = activeProductId || (products.length > 0 ? products[0]?.id : null);
+
+  const handleStartRecording = async () => {
+    if (!displayProductId) return;
+    setRecordingLoading(true);
+
+    try {
+      const res = await fetch('/api/recording/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: displayProductId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRecordingSessionId(data.sessionId);
+      }
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+    }
+
+    setRecordingLoading(false);
+  };
+
+  const handleEndRecording = () => {
+    setRecordingSessionId(null);
+    fetchData(); // Refresh to show new screenshots
+  };
+
   if (!user) {
     return null; // AuthGuard will redirect
   }
@@ -218,9 +267,28 @@ export default function Home() {
     );
   }
 
+  const activeProduct = products.find((p: any) => p.id === displayProductId);
+  const activeProductName = activeProduct?.name || 'Product';
+
   const lastSweep = latestCapture?.captured_at
     ? timeAgo(new Date(latestCapture.captured_at))
     : 'Never';
+
+  // Recording mode
+  if (recordingSessionId) {
+    return (
+      <div className="flex h-screen" style={{ backgroundColor: '#F2F2F2' }}>
+        <Sidebar />
+        <main className="flex-1 overflow-auto">
+          <RecordingMode
+            sessionId={recordingSessionId}
+            productName={activeProductName}
+            onEndRecording={handleEndRecording}
+          />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen" style={{ backgroundColor: '#F2F2F2' }}>
@@ -230,18 +298,28 @@ export default function Home() {
           <div className="p-8 pb-6">
             <div className="mb-4 flex items-center justify-between">
               <ProductSwitcher products={products} activeProductId={activeProductId} />
-              <button
-                onClick={() => setIsAddProductModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
-              >
-                <Plus size={18} />
-                Add product
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleStartRecording}
+                  disabled={recordingLoading}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 transition-colors"
+                >
+                  <Circle size={14} fill="currentColor" />
+                  {recordingLoading ? 'Starting...' : 'Start Recording'}
+                </button>
+                <button
+                  onClick={() => setIsAddProductModalOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+                >
+                  <Plus size={18} />
+                  Add product
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-8 mb-4">
               <div>
-                <p className="text-sm text-gray-500">Last sweep</p>
+                <p className="text-sm text-gray-500">Last recording</p>
                 <p className="text-lg font-medium text-gray-900">{lastSweep}</p>
               </div>
               <div>
@@ -249,14 +327,14 @@ export default function Home() {
                 <p className="text-lg font-medium text-gray-900">{changesCount} detected</p>
               </div>
             </div>
-
-            <RunSweepButton
-              flows={flows}
-              productId={activeProductId || (products.length > 0 ? products[0].id : null)}
-            />
           </div>
 
-          <DashboardTabs routes={routes} connections={connections} components={components} />
+          <DashboardTabs
+            routes={routes}
+            connections={connections}
+            components={components}
+            productId={displayProductId}
+          />
         </div>
 
         <AddProductModal

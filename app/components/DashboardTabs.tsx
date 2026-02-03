@@ -168,7 +168,71 @@ function flattenFlowTrees(flowTrees: Record<string, RouteNode[]>, flowGroups: Re
   return sections;
 }
 
-export default function DashboardTabs({ routes, connections, components }: { routes: Route[] | null; connections: Connection[] | null; components: Component[] | null }) {
+function HierarchicalFlowItem({ flow, depth, expandedFlows, setExpandedFlows, visibleFlow, scrollToFlow }: {
+  flow: any;
+  depth: number;
+  expandedFlows: string[];
+  setExpandedFlows: (value: string[] | ((prev: string[]) => string[])) => void;
+  visibleFlow: string | null;
+  scrollToFlow: (flowName: string) => void;
+}) {
+  const hasChildren = flow.children && flow.children.length > 0;
+  const isExpanded = expandedFlows.includes(flow.id);
+  const isActive = visibleFlow === flow.name;
+
+  return (
+    <div>
+      <button
+        onClick={() => {
+          scrollToFlow(flow.name);
+          if (hasChildren) {
+            setExpandedFlows(prev =>
+              prev.includes(flow.id)
+                ? prev.filter(id => id !== flow.id)
+                : [...prev, flow.id]
+            );
+          }
+        }}
+        className={`flex items-center gap-1.5 w-full text-left px-3 py-2 transition-colors ${
+          isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'
+        }`}
+        style={{ paddingLeft: `${depth * 16 + 12}px`, fontSize: depth === 0 ? '16px' : '14px' }}
+      >
+        {hasChildren ? (
+          <svg
+            width="12" height="12" viewBox="0 0 12 12"
+            className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          >
+            <path d="M4 2L8 6L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+          </svg>
+        ) : (
+          <span className="w-3 flex-shrink-0" />
+        )}
+        <span className="truncate">{flow.name}</span>
+        {flow.screenCount > 0 && (
+          <span className="text-xs text-gray-400 ml-auto flex-shrink-0">{flow.screenCount}</span>
+        )}
+      </button>
+      {isExpanded && hasChildren && (
+        <div>
+          {flow.children.map((child: any) => (
+            <HierarchicalFlowItem
+              key={child.id}
+              flow={child}
+              depth={depth + 1}
+              expandedFlows={expandedFlows}
+              setExpandedFlows={setExpandedFlows}
+              visibleFlow={visibleFlow}
+              scrollToFlow={scrollToFlow}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function DashboardTabs({ routes, connections, components, productId }: { routes: Route[] | null; connections: Connection[] | null; components: Component[] | null; productId?: string | null }) {
   const [activeTab, setActiveTab] = useState('changes');
   const [visibleFlow, setVisibleFlow] = useState<string | null>(null);
   const [expandedFlows, setExpandedFlows] = useState<string[]>([]);
@@ -183,6 +247,7 @@ export default function DashboardTabs({ routes, connections, components }: { rou
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [flowHoverStates, setFlowHoverStates] = useState<Record<string, boolean>>({});
   const [flowCopyingStates, setFlowCopyingStates] = useState<Record<string, boolean>>({});
+  const [hierarchicalFlows, setHierarchicalFlows] = useState<any[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const flowScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -192,6 +257,28 @@ export default function DashboardTabs({ routes, connections, components }: { rou
   useEffect(() => {
     setLocalComponents(components || []);
   }, [components]);
+
+  // Fetch hierarchical flows when productId changes
+  useEffect(() => {
+    if (!productId || activeTab !== 'flows') {
+      setHierarchicalFlows([]);
+      return;
+    }
+
+    async function fetchHierarchicalFlows() {
+      try {
+        const response = await fetch(`/api/flows?productId=${productId}`);
+        const data = await response.json();
+        if (data.success && data.flows) {
+          setHierarchicalFlows(data.flows);
+        }
+      } catch (error) {
+        console.error('Failed to fetch hierarchical flows:', error);
+      }
+    }
+
+    fetchHierarchicalFlows();
+  }, [productId, activeTab]);
 
   // Filter data based on search query
   const filteredRoutes = routes?.filter(route => {
@@ -532,60 +619,74 @@ export default function DashboardTabs({ routes, connections, components }: { rou
             >
               {allExpanded ? 'Collapse all' : 'Expand all'}
             </button>
-            {flowNames.map(flowName => {
-              const screens = flowGroups[flowName];
-              const isActive = visibleFlow === flowName;
-              const isExpanded = expandedFlows.includes(flowName);
-              const treeNodes = flowTrees?.[flowName];
-              const hasChildren = treeNodes && treeNodes.length > 0;
+            {hierarchicalFlows.length > 0 ? (
+              hierarchicalFlows.map(flow => (
+                <HierarchicalFlowItem
+                  key={flow.id}
+                  flow={flow}
+                  depth={0}
+                  expandedFlows={expandedFlows}
+                  setExpandedFlows={setExpandedFlows}
+                  visibleFlow={visibleFlow}
+                  scrollToFlow={scrollToFlow}
+                />
+              ))
+            ) : (
+              flowNames.map(flowName => {
+                const screens = flowGroups[flowName];
+                const isActive = visibleFlow === flowName;
+                const isExpanded = expandedFlows.includes(flowName);
+                const treeNodes = flowTrees?.[flowName];
+                const hasChildren = treeNodes && treeNodes.length > 0;
 
-              return (
-                <div key={flowName}>
-                  <button
-                    onClick={() => {
-                      scrollToFlow(flowName);
-                      if (hasChildren) {
-                        setExpandedFlows(prev =>
-                          prev.includes(flowName)
-                            ? prev.filter(f => f !== flowName)
-                            : [...prev, flowName]
-                        );
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 w-full text-left px-3 py-2 text-base transition-colors ${isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    {hasChildren ? (
-                      <svg
-                        width="12" height="12" viewBox="0 0 12 12"
-                        className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                      >
-                        <path d="M4 2L8 6L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                      </svg>
-                    ) : (
-                      <span className="w-3 flex-shrink-0" />
+                return (
+                  <div key={flowName}>
+                    <button
+                      onClick={() => {
+                        scrollToFlow(flowName);
+                        if (hasChildren) {
+                          setExpandedFlows(prev =>
+                            prev.includes(flowName)
+                              ? prev.filter(f => f !== flowName)
+                              : [...prev, flowName]
+                          );
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 w-full text-left px-3 py-2 text-base transition-colors ${isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      {hasChildren ? (
+                        <svg
+                          width="12" height="12" viewBox="0 0 12 12"
+                          className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                        >
+                          <path d="M4 2L8 6L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                        </svg>
+                      ) : (
+                        <span className="w-3 flex-shrink-0" />
+                      )}
+                      <span className="truncate">{flowName}</span>
+                      <span className="text-xs text-gray-400 ml-auto flex-shrink-0">{flowScreenCounts[flowName] || screens.length}</span>
+                    </button>
+                    {isExpanded && hasChildren && (
+                      <div className="relative">
+                        {treeNodes.map((node, i) => (
+                          <SidebarTreeNode
+                            key={`${node.id}-${expandKey}`}
+                            node={node}
+                            depth={1}
+                            isLast={i === treeNodes.length - 1}
+                            visibleFlow={visibleFlow}
+                            onScrollTo={scrollToFlow}
+                            flowName={flowName}
+                            defaultExpanded={allExpanded}
+                          />
+                        ))}
+                      </div>
                     )}
-                    <span className="truncate">{flowName}</span>
-                    <span className="text-xs text-gray-400 ml-auto flex-shrink-0">{flowScreenCounts[flowName] || screens.length}</span>
-                  </button>
-                  {isExpanded && hasChildren && (
-                    <div className="relative">
-                      {treeNodes.map((node, i) => (
-                        <SidebarTreeNode
-                          key={`${node.id}-${expandKey}`}
-                          node={node}
-                          depth={1}
-                          isLast={i === treeNodes.length - 1}
-                          visibleFlow={visibleFlow}
-                          onScrollTo={scrollToFlow}
-                          flowName={flowName}
-                          defaultExpanded={allExpanded}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })
+            )}
 
             {/* Resize handle */}
             <div
